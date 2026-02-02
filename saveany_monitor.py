@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.6
+SaveAny-Bot Monitor v2.6.1
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -509,7 +509,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.6")
+        self.root.title("SaveAny-Bot Monitor v2.6.1")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
         self.root.minsize(650, 600)
@@ -1107,14 +1107,22 @@ base_path = "Z:/sp/uuu"""
                 self.update_tasks_ui()
                 return
             
-            # 解析任务失败
-            if 'failed' in message.lower() or 'error' in message.lower():
-                error_match = re.search(r'file\[(.+?)\].*(?:failed|error)', message, re.IGNORECASE)
+            # 解析任务失败或取消
+            if 'failed' in message.lower() or 'error' in message.lower() or 'canceled' in message.lower() or 'cancelled' in message.lower():
+                # 检查是否是取消操作
+                is_canceled = 'canceled' in message.lower() or 'cancelled' in message.lower() or 'context canceled' in message.lower()
+                
+                error_match = re.search(r'file\s*\[(.+?)\]', message)
                 if error_match:
                     filename = error_match.group(1)
-                    for task_id, task in download_tasks.items():
+                    for task_id, task in list(download_tasks.items()):
                         if task['filename'] == filename:
-                            download_tasks[task_id]['status'] = '失败'
+                            if is_canceled:
+                                download_tasks[task_id]['status'] = '已取消'
+                            else:
+                                download_tasks[task_id]['status'] = '失败'
+                            # 30秒后移除失败/取消的任务
+                            self.root.after(30000, lambda tid=task_id: self.remove_finished_task(tid))
                             break
                 # 更新任务列表 UI
                 self.update_tasks_ui()
@@ -1125,8 +1133,12 @@ base_path = "Z:/sp/uuu"""
     
     def remove_completed_task(self, task_id):
         """移除已完成的任务"""
+        self.remove_finished_task(task_id)
+    
+    def remove_finished_task(self, task_id):
+        """移除已完成、已取消或失败的任务"""
         global download_tasks
-        if task_id in download_tasks and download_tasks[task_id]['status'] == '已完成':
+        if task_id in download_tasks and download_tasks[task_id]['status'] in ['已完成', '已取消', '失败']:
             del download_tasks[task_id]
             self.update_tasks_ui()
     
