@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.4
+SaveAny-Bot Monitor v2.5
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获
 新增：自定义日志位置、SOCKS5 代理设置、下载位置设置
+v2.5: 修复配置文件格式，使用正确的 [telegram.proxy] 和 [[storages]] 格式
 针对 Windows Server 2025 优化
 """
 
@@ -288,7 +289,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.4")
+        self.root.title("SaveAny-Bot Monitor v2.5")
         self.root.geometry("780x750")
         self.root.minsize(750, 650)
         
@@ -482,7 +483,7 @@ class SaveAnyMonitor:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         
-        self.log("SaveAny-Bot Monitor v2.4 已启动")
+        self.log("SaveAny-Bot Monitor v2.5 已启动")
         self.log(f"正在监控进程: {self.target_process}")
     
     def create_log_tab(self, parent):
@@ -583,7 +584,20 @@ class SaveAnyMonitor:
         proxy_btn_row = ttk.Frame(proxy_frame)
         proxy_btn_row.pack(fill=tk.X, pady=(5, 0))
         ttk.Button(proxy_btn_row, text="应用代理设置", command=self.apply_proxy_settings).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_row, text="从配置读取", command=self.load_proxy_from_config).pack(side=tk.LEFT)
+        ttk.Button(proxy_btn_row, text="从配置读取", command=self.load_proxy_from_config).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(proxy_btn_row, text="测试连接", command=self.test_proxy_connection).pack(side=tk.LEFT)
+        
+        # SOCKS5 代理运行状态显示
+        proxy_status_row = ttk.Frame(proxy_frame)
+        proxy_status_row.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(proxy_status_row, text="代理状态:").pack(side=tk.LEFT)
+        self.proxy_status_label = ttk.Label(proxy_status_row, text="未检测", foreground="gray")
+        self.proxy_status_label.pack(side=tk.LEFT, padx=(5, 15))
+        
+        ttk.Label(proxy_status_row, text="延迟:").pack(side=tk.LEFT)
+        self.proxy_latency_label = ttk.Label(proxy_status_row, text="-", foreground="gray")
+        self.proxy_latency_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # 下载位置设置
         download_frame = ttk.LabelFrame(parent, text="📥 下载保存位置", padding="10")
@@ -671,12 +685,24 @@ class SaveAnyMonitor:
             
             enable_str = "true" if enable else "false"
             
-            if '[proxy]' in content:
-                content = re.sub(r'(\[proxy\].*?enable\s*=\s*)(true|false)', f'\\1{enable_str}', content, flags=re.DOTALL)
-                content = re.sub(r'(\[proxy\].*?url\s*=\s*")[^"]*(")', f'\\1{proxy_url}\\2', content, flags=re.DOTALL)
+            # 使用正确的 [telegram.proxy] 格式
+            if '[telegram.proxy]' in content:
+                content = re.sub(r'(\[telegram\.proxy\].*?enable\s*=\s*)(true|false)', f'\\1{enable_str}', content, flags=re.DOTALL)
+                content = re.sub(r'(\[telegram\.proxy\].*?url\s*=\s*")[^"]*(")' , f'\\1{proxy_url}\\2', content, flags=re.DOTALL)
             else:
-                proxy_config = f'\n[proxy]\nenable = {enable_str}\nurl = "{proxy_url}"\n'
-                content += proxy_config
+                # 在 [telegram] 部分后添加 [telegram.proxy]
+                if '[telegram]' in content:
+                    proxy_config = f'\n[telegram.proxy]\n# 启用代理连接 telegram\nenable = {enable_str}\nurl = "{proxy_url}"\n'
+                    # 找到 [telegram] 部分的末尾（下一个 [ 开头的行之前）
+                    telegram_match = re.search(r'(\[telegram\][^\[]*)', content)
+                    if telegram_match:
+                        telegram_section = telegram_match.group(1)
+                        content = content.replace(telegram_section, telegram_section.rstrip() + proxy_config)
+                    else:
+                        content += proxy_config
+                else:
+                    proxy_config = f'\n[telegram.proxy]\n# 启用代理连接 telegram\nenable = {enable_str}\nurl = "{proxy_url}"\n'
+                    content += proxy_config
             
             backup_path = config_path + ".bak"
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -702,11 +728,12 @@ class SaveAnyMonitor:
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            enable_match = re.search(r'\[proxy\].*?enable\s*=\s*(true|false)', content, re.DOTALL)
+            # 使用正确的 [telegram.proxy] 格式
+            enable_match = re.search(r'\[telegram\.proxy\].*?enable\s*=\s*(true|false)', content, re.DOTALL)
             if enable_match:
                 self.proxy_enable_var.set(enable_match.group(1) == 'true')
             
-            url_match = re.search(r'\[proxy\].*?url\s*=\s*"([^"]*)"', content, re.DOTALL)
+            url_match = re.search(r'\[telegram\.proxy\].*?url\s*=\s*"([^"]*)"', content, re.DOTALL)
             if url_match:
                 proxy_url = url_match.group(1)
                 url_pattern = r'socks5://(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)'
@@ -729,6 +756,76 @@ class SaveAnyMonitor:
             self.settings_status.config(text="✓ 已从配置文件读取代理设置", foreground="green")
         except Exception as e:
             messagebox.showerror("错误", f"读取代理设置失败: {str(e)}")
+    
+    def test_proxy_connection(self):
+        """测试 SOCKS5 代理连接状态"""
+        host = self.proxy_host_entry.get().strip()
+        port = self.proxy_port_entry.get().strip()
+        user = self.proxy_user_entry.get().strip()
+        password = self.proxy_pass_entry.get().strip()
+        
+        if not host or not port:
+            messagebox.showwarning("警告", "请先填写代理地址和端口")
+            return
+        
+        self.proxy_status_label.config(text="检测中...", foreground="orange")
+        self.proxy_latency_label.config(text="-", foreground="gray")
+        self.root.update()
+        
+        # 在后台线程中测试连接
+        def test_connection():
+            try:
+                import socks
+                start_time = time.time()
+                
+                # 创建 SOCKS5 代理连接
+                s = socks.socksocket()
+                s.set_proxy(socks.SOCKS5, host, int(port), username=user if user else None, password=password if password else None)
+                s.settimeout(10)
+                
+                # 尝试连接 Telegram API 服务器
+                s.connect(("api.telegram.org", 443))
+                latency = (time.time() - start_time) * 1000  # 转换为毫秒
+                s.close()
+                
+                # 更新 UI（在主线程中）
+                self.root.after(0, lambda: self.update_proxy_status(True, latency))
+            except ImportError:
+                # 如果没有安装 PySocks，尝试直接 TCP 连接测试
+                try:
+                    start_time = time.time()
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(5)
+                    s.connect((host, int(port)))
+                    latency = (time.time() - start_time) * 1000
+                    s.close()
+                    self.root.after(0, lambda: self.update_proxy_status(True, latency, "TCP连接正常"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.update_proxy_status(False, 0, str(e)))
+            except Exception as e:
+                self.root.after(0, lambda: self.update_proxy_status(False, 0, str(e)))
+        
+        threading.Thread(target=test_connection, daemon=True).start()
+    
+    def update_proxy_status(self, success, latency, message=None):
+        """更新代理状态显示"""
+        if success:
+            if latency < 200:
+                latency_color = "green"
+            elif latency < 500:
+                latency_color = "orange"
+            else:
+                latency_color = "red"
+            
+            status_text = message if message else "连接正常"
+            self.proxy_status_label.config(text=f"✓ {status_text}", foreground="green")
+            self.proxy_latency_label.config(text=f"{latency:.0f} ms", foreground=latency_color)
+            self.settings_status.config(text=f"✓ 代理连接测试成功，延迟: {latency:.0f}ms", foreground="green")
+        else:
+            error_msg = message if message else "连接失败"
+            self.proxy_status_label.config(text=f"✗ {error_msg[:20]}", foreground="red")
+            self.proxy_latency_label.config(text="-", foreground="gray")
+            self.settings_status.config(text=f"✗ 代理连接测试失败: {error_msg}", foreground="red")
     
     def browse_download_dir(self):
         dir_path = filedialog.askdirectory(title="选择下载保存目录")
@@ -753,12 +850,20 @@ class SaveAnyMonitor:
             
             download_dir = download_dir.replace('\\', '/')
             
-            if '[storage.local]' in content:
-                content = re.sub(r'(\[storage\.local\].*?path\s*=\s*")[^"]*(")', f'\\1{download_dir}\\2', content, flags=re.DOTALL)
-            elif '[storage]' in content:
-                content = re.sub(r'(\[storage\])', f'\\1\n\n[storage.local]\npath = "{download_dir}"', content)
+            # 使用正确的 [[storages]] 格式
+            # 查找现有的 [[storages]] 配置并更新 base_path
+            if '[[storages]]' in content:
+                # 查找 type = "local" 的 storage 并更新 base_path
+                local_storage_pattern = r'(\[\[storages\]\][^\[]*type\s*=\s*"local"[^\[]*base_path\s*=\s*")[^"]*(")'  
+                if re.search(local_storage_pattern, content, re.DOTALL):
+                    content = re.sub(local_storage_pattern, f'\\1{download_dir}\\2', content, flags=re.DOTALL)
+                else:
+                    # 没有找到 local 类型的 storage，添加一个新的
+                    storage_config = f'\n[[storages]]\nname = "本地磁盘"\ntype = "local"\nenable = true\nbase_path = "{download_dir}"\n'
+                    content += storage_config
             else:
-                storage_config = f'\n[storage]\n\n[storage.local]\npath = "{download_dir}"\n'
+                # 没有 [[storages]] 配置，添加一个新的
+                storage_config = f'\n[[storages]]\nname = "本地磁盘"\ntype = "local"\nenable = true\nbase_path = "{download_dir}"\n'
                 content += storage_config
             
             backup_path = config_path + ".bak"
@@ -785,14 +890,17 @@ class SaveAnyMonitor:
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            path_match = re.search(r'\[storage\.local\].*?path\s*=\s*"([^"]*)"', content, re.DOTALL)
+            # 使用正确的 [[storages]] 格式读取
+            # 查找 type = "local" 的 storage 的 base_path
+            local_storage_pattern = r'\[\[storages\]\][^\[]*type\s*=\s*"local"[^\[]*base_path\s*=\s*"([^"]*)"'
+            path_match = re.search(local_storage_pattern, content, re.DOTALL)
             if path_match:
                 download_path = path_match.group(1)
                 self.download_dir_entry.delete(0, tk.END)
                 self.download_dir_entry.insert(0, download_path)
                 self.settings_status.config(text="✓ 已从配置文件读取下载目录设置", foreground="green")
             else:
-                self.settings_status.config(text="配置文件中未找到下载目录设置", foreground="orange")
+                self.settings_status.config(text="配置文件中未找到本地存储设置", foreground="orange")
         except Exception as e:
             messagebox.showerror("错误", f"读取下载目录设置失败: {str(e)}")
     
