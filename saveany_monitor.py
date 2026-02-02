@@ -3,9 +3,7 @@
 """
 SaveAny-Bot Monitor v2.5
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
-支持配置文件编辑、Web 网页查看、日志捕获
-新增：自定义日志位置、SOCKS5 代理设置、下载位置设置
-v2.5: 修复配置文件格式，使用正确的 [telegram.proxy] 和 [[storages]] 格式
+支持配置文件编辑、Web 网页查看和日志捕获
 针对 Windows Server 2025 优化
 """
 
@@ -21,7 +19,6 @@ import json
 import socket
 import webbrowser
 import queue
-import re
 from datetime import datetime, timedelta
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -49,13 +46,12 @@ monitor_data = {
 # 全局变量
 config_path = None
 control_callback = None
-recent_logs = deque(maxlen=500)
-
-# 监控程序设置文件
-SETTINGS_FILE = "monitor_settings.json"
+recent_logs = deque(maxlen=500)  # 保存最近500行日志用于Web显示
 
 
 class StoppableHTTPServer(HTTPServer):
+    """可停止的 HTTP 服务器，针对 Windows Server 优化"""
+    
     allow_reuse_address = True
     
     def __init__(self, *args, **kwargs):
@@ -64,6 +60,7 @@ class StoppableHTTPServer(HTTPServer):
         self.socket.settimeout(1.0)
     
     def serve_forever_stoppable(self):
+        """可停止的服务循环"""
         while not self._stop_event.is_set():
             try:
                 self.handle_request()
@@ -75,6 +72,7 @@ class StoppableHTTPServer(HTTPServer):
                 continue
     
     def stop(self):
+        """停止服务器"""
         self._stop_event.set()
         try:
             self.socket.close()
@@ -83,6 +81,8 @@ class StoppableHTTPServer(HTTPServer):
 
 
 class MonitorHTTPHandler(BaseHTTPRequestHandler):
+    """HTTP 请求处理器"""
+    
     protocol_version = 'HTTP/1.0'
     timeout = 10
     
@@ -92,12 +92,17 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
             super().handle_one_request()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+        except socket.timeout:
+            pass
         except Exception:
             pass
     
     def do_GET(self):
         try:
             parsed_path = urlparse(self.path)
+            
             if parsed_path.path == '/' or parsed_path.path == '/index.html':
                 self.send_html_page()
             elif parsed_path.path == '/api/status':
@@ -114,6 +119,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             parsed_path = urlparse(self.path)
+            
             if parsed_path.path == '/api/config':
                 self.save_config()
             elif parsed_path.path == '/api/control':
@@ -124,6 +130,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             pass
     
     def send_html_page(self):
+        """发送 HTML 页面"""
         html = '''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -132,7 +139,13 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
     <title>SaveAny-Bot Monitor</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #fff; padding: 20px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
         .container { max-width: 1200px; margin: 0 auto; }
         h1 { text-align: center; margin-bottom: 30px; font-size: 2em; }
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.9em; margin-left: 10px; }
@@ -147,6 +160,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .stat-value { font-weight: bold; font-size: 1.1em; }
         .progress-bar { width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 5px; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #00c853, #69f0ae); border-radius: 4px; transition: width 0.3s ease; }
+        .progress-fill.warning { background: linear-gradient(90deg, #ff9800, #ffb74d); }
+        .progress-fill.danger { background: linear-gradient(90deg, #ff5252, #ff8a80); }
         .speed-value { font-size: 1.5em; font-weight: bold; color: #69f0ae; }
         .speed-value.upload { color: #64b5f6; }
         .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; }
@@ -156,7 +171,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .btn-danger { background: #ff5252; color: #fff; }
         .btn-warning { background: #ff9800; color: #fff; }
         .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
-        .config-editor, .log-viewer { width: 100%; min-height: 300px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 15px; color: #fff; font-family: Consolas, Monaco, monospace; font-size: 13px; resize: vertical; }
+        .config-editor, .log-viewer { width: 100%; min-height: 300px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 15px; color: #fff; font-family: "Consolas", "Monaco", monospace; font-size: 13px; resize: vertical; }
         .log-viewer { min-height: 400px; white-space: pre-wrap; word-wrap: break-word; overflow-y: auto; }
         .update-time { text-align: center; color: rgba(255,255,255,0.5); font-size: 0.9em; margin-top: 20px; }
         .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
@@ -164,139 +179,327 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .tab.active { background: #2196f3; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 1.5em; } }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>SaveAny-Bot Monitor <span id="statusBadge" class="status-badge status-stopped">未运行</span></h1>
+        
         <div class="tabs">
             <button class="tab active" onclick="showTab('monitor')">监控</button>
             <button class="tab" onclick="showTab('logs')">日志</button>
             <button class="tab" onclick="showTab('config')">配置</button>
         </div>
+        
         <div id="monitor" class="tab-content active">
             <div class="grid">
-                <div class="card"><h2>进程状态</h2><div class="stat-row"><span class="stat-label">运行状态</span><span class="stat-value" id="status">检测中...</span></div><div class="stat-row"><span class="stat-label">进程 PID</span><span class="stat-value" id="pid">-</span></div><div class="stat-row"><span class="stat-label">运行时长</span><span class="stat-value" id="uptime">-</span></div></div>
-                <div class="card"><h2>资源占用</h2><div class="stat-row"><span class="stat-label">CPU 使用率</span><span class="stat-value" id="cpu">0%</span></div><div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width: 0%"></div></div><div class="stat-row" style="margin-top: 15px;"><span class="stat-label">内存使用</span><span class="stat-value" id="memory">0 MB</span></div><div class="progress-bar"><div class="progress-fill" id="memBar" style="width: 0%"></div></div><div class="stat-row" style="margin-top: 15px;"><span class="stat-label">线程数 / 句柄数</span><span class="stat-value"><span id="threads">-</span> / <span id="handles">-</span></span></div></div>
-                <div class="card"><h2>进程网络流量</h2><div class="stat-row"><span class="stat-label">下载速度</span><span class="speed-value" id="downloadSpeed">0 KB/s</span></div><div class="stat-row"><span class="stat-label">上传速度</span><span class="speed-value upload" id="uploadSpeed">0 KB/s</span></div><div class="stat-row"><span class="stat-label">总下载 / 总上传</span><span class="stat-value"><span id="totalDownload">0 MB</span> / <span id="totalUpload">0 MB</span></span></div></div>
-                <div class="card"><h2>系统网络流量</h2><div class="stat-row"><span class="stat-label">系统下载</span><span class="speed-value" id="sysDownload">0 KB/s</span></div><div class="stat-row"><span class="stat-label">系统上传</span><span class="speed-value upload" id="sysUpload">0 KB/s</span></div></div>
+                <div class="card">
+                    <h2>进程状态</h2>
+                    <div class="stat-row"><span class="stat-label">运行状态</span><span class="stat-value" id="status">检测中...</span></div>
+                    <div class="stat-row"><span class="stat-label">进程 PID</span><span class="stat-value" id="pid">-</span></div>
+                    <div class="stat-row"><span class="stat-label">运行时长</span><span class="stat-value" id="uptime">-</span></div>
+                </div>
+                <div class="card">
+                    <h2>资源占用</h2>
+                    <div class="stat-row"><span class="stat-label">CPU 使用率</span><span class="stat-value" id="cpu">0%</span></div>
+                    <div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width: 0%"></div></div>
+                    <div class="stat-row" style="margin-top: 15px;"><span class="stat-label">内存使用</span><span class="stat-value" id="memory">0 MB</span></div>
+                    <div class="progress-bar"><div class="progress-fill" id="memBar" style="width: 0%"></div></div>
+                    <div class="stat-row" style="margin-top: 15px;"><span class="stat-label">线程数 / 句柄数</span><span class="stat-value"><span id="threads">-</span> / <span id="handles">-</span></span></div>
+                </div>
+                <div class="card">
+                    <h2>进程网络流量</h2>
+                    <div class="stat-row"><span class="stat-label">下载速度</span><span class="speed-value" id="downloadSpeed">0 KB/s</span></div>
+                    <div class="stat-row"><span class="stat-label">上传速度</span><span class="speed-value upload" id="uploadSpeed">0 KB/s</span></div>
+                    <div class="stat-row"><span class="stat-label">总下载 / 总上传</span><span class="stat-value"><span id="totalDownload">0 MB</span> / <span id="totalUpload">0 MB</span></span></div>
+                </div>
+                <div class="card">
+                    <h2>系统网络流量</h2>
+                    <div class="stat-row"><span class="stat-label">系统下载</span><span class="speed-value" id="sysDownload">0 KB/s</span></div>
+                    <div class="stat-row"><span class="stat-label">系统上传</span><span class="speed-value upload" id="sysUpload">0 KB/s</span></div>
+                </div>
             </div>
-            <div class="card"><h2>进程控制</h2><div class="btn-group"><button class="btn btn-success" onclick="controlProcess('start')">启动进程</button><button class="btn btn-danger" onclick="controlProcess('stop')">停止进程</button><button class="btn btn-warning" onclick="controlProcess('restart')">重启进程</button></div></div>
+            <div class="card">
+                <h2>进程控制</h2>
+                <div class="btn-group">
+                    <button class="btn btn-success" onclick="controlProcess('start')">启动进程</button>
+                    <button class="btn btn-danger" onclick="controlProcess('stop')">停止进程</button>
+                    <button class="btn btn-warning" onclick="controlProcess('restart')">重启进程</button>
+                </div>
+            </div>
         </div>
-        <div id="logs" class="tab-content"><div class="card"><h2>实时日志</h2><div class="btn-group" style="margin-bottom: 15px;"><button class="btn btn-primary" onclick="refreshLogs()">刷新日志</button><button class="btn btn-danger" onclick="clearLogs()">清空显示</button></div><div id="logViewer" class="log-viewer">等待日志...</div></div></div>
-        <div id="config" class="tab-content"><div class="card"><h2>配置文件编辑</h2><div class="btn-group" style="margin-bottom: 15px;"><button class="btn btn-primary" onclick="loadConfig()">加载配置</button><button class="btn btn-success" onclick="saveConfig()">保存配置</button></div><textarea id="configEditor" class="config-editor" placeholder="加载配置文件..."></textarea></div></div>
+        
+        <div id="logs" class="tab-content">
+            <div class="card">
+                <h2>实时日志</h2>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadLogs()">刷新日志</button>
+                    <button class="btn btn-danger" onclick="clearLogs()">清空显示</button>
+                    <label style="display: flex; align-items: center; color: #fff;">
+                        <input type="checkbox" id="autoScroll" checked style="margin-right: 5px;"> 自动滚动
+                    </label>
+                </div>
+                <div id="logViewer" class="log-viewer">等待日志...</div>
+            </div>
+        </div>
+        
+        <div id="config" class="tab-content">
+            <div class="card">
+                <h2>配置文件编辑 (config.toml)</h2>
+                <textarea id="configEditor" class="config-editor" placeholder="加载配置文件中..."></textarea>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="loadConfig()">重新加载</button>
+                    <button class="btn btn-success" onclick="saveConfig()">保存配置</button>
+                </div>
+            </div>
+        </div>
+        
         <p class="update-time">最后更新: <span id="updateTime">-</span></p>
     </div>
+    
     <script>
-        function showTab(tabId) { document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.getElementById(tabId).classList.add('active'); event.target.classList.add('active'); }
-        function updateStatus() { fetch('/api/status').then(r => r.json()).then(data => { document.getElementById('status').textContent = data.status; document.getElementById('pid').textContent = data.pid; document.getElementById('uptime').textContent = data.uptime; document.getElementById('cpu').textContent = data.cpu + '%'; document.getElementById('cpuBar').style.width = Math.min(data.cpu, 100) + '%'; document.getElementById('memory').textContent = data.memory; document.getElementById('memBar').style.width = Math.min(data.memory_percent, 100) + '%'; document.getElementById('threads').textContent = data.threads; document.getElementById('handles').textContent = data.handles; document.getElementById('downloadSpeed').textContent = data.download_speed; document.getElementById('uploadSpeed').textContent = data.upload_speed; document.getElementById('totalDownload').textContent = data.total_download; document.getElementById('totalUpload').textContent = data.total_upload; document.getElementById('sysDownload').textContent = data.sys_download; document.getElementById('sysUpload').textContent = data.sys_upload; document.getElementById('updateTime').textContent = data.last_update; var badge = document.getElementById('statusBadge'); if (data.status === '运行中') { badge.textContent = '运行中'; badge.className = 'status-badge status-running'; } else { badge.textContent = '未运行'; badge.className = 'status-badge status-stopped'; } }).catch(e => console.error('Error:', e)); }
-        function controlProcess(action) { fetch('/api/control', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: action}) }).then(r => r.json()).then(data => alert(data.message)).catch(e => alert('操作失败: ' + e)); }
-        function loadConfig() { fetch('/api/config').then(r => r.json()).then(data => { if (data.content) { document.getElementById('configEditor').value = data.content; } else { alert(data.error || '加载失败'); } }).catch(e => alert('加载失败: ' + e)); }
-        function saveConfig() { var content = document.getElementById('configEditor').value; fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: content}) }).then(r => r.json()).then(data => alert(data.message || data.error)).catch(e => alert('保存失败: ' + e)); }
-        function refreshLogs() { fetch('/api/logs').then(r => r.json()).then(data => { var viewer = document.getElementById('logViewer'); viewer.textContent = data.logs.join('\\n') || '暂无日志'; viewer.scrollTop = viewer.scrollHeight; }).catch(e => console.error('Error:', e)); }
+        var logTimer = null;
+        
+        function showTab(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
+            document.getElementById(name).classList.add('active');
+            if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
+            else if (name === 'config') loadConfig();
+        }
+        
+        function updateStatus() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/status', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        document.getElementById('status').textContent = data.status;
+                        document.getElementById('pid').textContent = data.pid;
+                        document.getElementById('uptime').textContent = data.uptime;
+                        document.getElementById('cpu').textContent = data.cpu + '%';
+                        document.getElementById('memory').textContent = data.memory;
+                        document.getElementById('threads').textContent = data.threads;
+                        document.getElementById('handles').textContent = data.handles;
+                        document.getElementById('downloadSpeed').textContent = data.download_speed;
+                        document.getElementById('uploadSpeed').textContent = data.upload_speed;
+                        document.getElementById('totalDownload').textContent = data.total_download;
+                        document.getElementById('totalUpload').textContent = data.total_upload;
+                        document.getElementById('sysDownload').textContent = data.sys_download;
+                        document.getElementById('sysUpload').textContent = data.sys_upload;
+                        document.getElementById('updateTime').textContent = data.last_update;
+                        var cpuBar = document.getElementById('cpuBar');
+                        cpuBar.style.width = Math.min(data.cpu, 100) + '%';
+                        cpuBar.className = 'progress-fill' + (data.cpu > 80 ? ' danger' : data.cpu > 50 ? ' warning' : '');
+                        var memBar = document.getElementById('memBar');
+                        memBar.style.width = Math.min(data.memory_percent, 100) + '%';
+                        memBar.className = 'progress-fill' + (data.memory_percent > 80 ? ' danger' : data.memory_percent > 50 ? ' warning' : '');
+                        var badge = document.getElementById('statusBadge');
+                        if (data.status.indexOf('运行中') >= 0) { badge.textContent = '运行中'; badge.className = 'status-badge status-running'; }
+                        else { badge.textContent = '未运行'; badge.className = 'status-badge status-stopped'; }
+                    } catch(e) {}
+                }
+            };
+            xhr.send();
+        }
+        
+        function loadLogs() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/logs', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        var viewer = document.getElementById('logViewer');
+                        viewer.textContent = data.logs || '暂无日志';
+                        if (document.getElementById('autoScroll').checked) viewer.scrollTop = viewer.scrollHeight;
+                    } catch(e) {}
+                }
+            };
+            xhr.send();
+        }
+        
         function clearLogs() { document.getElementById('logViewer').textContent = ''; }
-        setInterval(updateStatus, 1000); setInterval(refreshLogs, 3000); updateStatus(); refreshLogs();
+        
+        function loadConfig() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/config', true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        document.getElementById('configEditor').value = data.success ? data.content : '# 无法加载: ' + data.error;
+                    } catch(e) {}
+                }
+            };
+            xhr.send();
+        }
+        
+        function saveConfig() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/config', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try { var data = JSON.parse(xhr.responseText); alert(data.success ? '配置已保存！' : '保存失败: ' + data.error); } catch(e) {}
+                }
+            };
+            xhr.send(JSON.stringify({ content: document.getElementById('configEditor').value }));
+        }
+        
+        function controlProcess(action) {
+            if ((action === 'stop' || action === 'restart') && !confirm('确定要' + (action === 'stop' ? '停止' : '重启') + '进程吗？')) return;
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/control', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try { var data = JSON.parse(xhr.responseText); alert(data.message); } catch(e) {}
+                }
+            };
+            xhr.send(JSON.stringify({ action: action }));
+        }
+        
+        updateStatus();
+        setInterval(updateStatus, 1000);
     </script>
 </body>
 </html>'''
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.send_header('Content-Length', len(html.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(html.encode('utf-8'))
+        try:
+            content = html.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
     
     def send_json_status(self):
-        response = json.dumps(monitor_data, ensure_ascii=False)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', len(response.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+        try:
+            content = json.dumps(monitor_data, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
+    
+    def send_logs(self):
+        """发送日志内容"""
+        global recent_logs
+        try:
+            logs_text = '\n'.join(recent_logs) if recent_logs else '暂无日志，请通过监控程序启动 SaveAny-Bot 以捕获日志'
+            result = {"logs": logs_text}
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
     
     def send_config(self):
         global config_path
-        if not config_path or not os.path.exists(config_path):
-            response = json.dumps({"error": "配置文件未找到"}, ensure_ascii=False)
-        else:
-            try:
+        result = {"success": False, "content": "", "error": ""}
+        try:
+            if config_path and os.path.exists(config_path):
                 with open(config_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                response = json.dumps({"content": content}, ensure_ascii=False)
-            except Exception as e:
-                response = json.dumps({"error": str(e)}, ensure_ascii=False)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', len(response.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
-    
-    def send_logs(self):
-        global recent_logs
-        response = json.dumps({"logs": list(recent_logs)}, ensure_ascii=False)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', len(response.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+                    result["content"] = f.read()
+                    result["success"] = True
+            else:
+                result["error"] = "配置文件不存在"
+        except Exception as e:
+            result["error"] = str(e)
+        try:
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
     
     def save_config(self):
         global config_path
+        result = {"success": False, "error": ""}
         try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            if not config_path:
-                response = json.dumps({"error": "配置文件路径未设置"}, ensure_ascii=False)
-            else:
-                if os.path.exists(config_path):
-                    backup_path = config_path + ".bak"
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        backup_content = f.read()
-                    with open(backup_path, 'w', encoding='utf-8') as f:
-                        f.write(backup_content)
-                with open(config_path, 'w', encoding='utf-8') as f:
-                    f.write(data['content'])
-                response = json.dumps({"message": "配置已保存"}, ensure_ascii=False)
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                if config_path:
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        f.write(data['content'])
+                    result["success"] = True
+                else:
+                    result["error"] = "配置文件路径未设置"
         except Exception as e:
-            response = json.dumps({"error": str(e)}, ensure_ascii=False)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', len(response.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+            result["error"] = str(e)
+        try:
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
     
     def handle_control(self):
         global control_callback
+        result = {"success": False, "message": ""}
         try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            action = data.get('action', '')
-            if control_callback:
-                result = control_callback(action)
-                response = json.dumps({"message": result}, ensure_ascii=False)
-            else:
-                response = json.dumps({"error": "控制回调未设置"}, ensure_ascii=False)
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                action = data.get('action', '')
+                if control_callback:
+                    result["message"] = control_callback(action)
+                    result["success"] = True
+                else:
+                    result["message"] = "控制功能未初始化"
         except Exception as e:
-            response = json.dumps({"error": str(e)}, ensure_ascii=False)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', len(response.encode('utf-8')))
-        self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+            result["message"] = str(e)
+        try:
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
 
 
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
         self.root.title("SaveAny-Bot Monitor v2.5")
-        self.root.geometry("780x750")
-        self.root.minsize(750, 650)
+        self.root.geometry("750x700")
+        self.root.resizable(True, True)
+        self.root.minsize(650, 600)
         
         self.target_process = "saveany-bot.exe"
-        self.target_path = None
+        self.target_path = ""
+        
         self.process = None
-        self.managed_process = None
+        self.managed_process = None  # 由监控程序启动的进程
         self.running = True
         self.update_interval = 1000
         
@@ -310,14 +513,11 @@ class SaveAnyMonitor:
         self.web_thread = None
         self.web_port = 8080
         
+        # 日志相关
         self.log_queue = queue.Queue()
         self.log_file = None
         self.log_file_path = None
         self.capture_logs = True
-        self.custom_log_dir = None
-        
-        self.settings = {}
-        self.load_settings()
         
         global config_path, control_callback, recent_logs
         config_path = None
@@ -329,49 +529,37 @@ class SaveAnyMonitor:
         self.process_log_queue()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
-    def load_settings(self):
-        try:
-            settings_path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__), SETTINGS_FILE)
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    self.settings = json.load(f)
-                    self.custom_log_dir = self.settings.get('log_dir', None)
-        except Exception:
-            self.settings = {}
-    
-    def save_settings(self):
-        try:
-            settings_path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__), SETTINGS_FILE)
-            with open(settings_path, 'w', encoding='utf-8') as f:
-                json.dump(self.settings, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            self.log(f"保存设置失败: {str(e)}")
-    
     def create_widgets(self):
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # 监控页面
         monitor_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(monitor_frame, text=" 📊 监控 ")
+        self.notebook.add(monitor_frame, text=" 监控 ")
         self.create_monitor_tab(monitor_frame)
         
+        # 日志页面
         log_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(log_frame, text=" 📝 日志 ")
+        self.notebook.add(log_frame, text=" 日志 ")
         self.create_log_tab(log_frame)
         
-        settings_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(settings_frame, text=" ⚙️ 设置 ")
-        self.create_settings_tab(settings_frame)
-        
+        # 配置编辑页面
         config_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(config_frame, text=" 📄 配置编辑 ")
+        self.notebook.add(config_frame, text=" 配置编辑 ")
         self.create_config_tab(config_frame)
         
+        # 设置页面
+        settings_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(settings_frame, text=" 设置 ")
+        self.create_settings_tab(settings_frame)
+        
+        # Web 服务页面
         web_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(web_frame, text=" 🌐 Web 服务 ")
+        self.notebook.add(web_frame, text=" Web 服务 ")
         self.create_web_tab(web_frame)
     
     def create_monitor_tab(self, parent):
+        # 进程状态
         status_frame = ttk.LabelFrame(parent, text="进程状态", padding="10")
         status_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -390,6 +578,7 @@ class SaveAnyMonitor:
         self.uptime_label = ttk.Label(status_row, text="-")
         self.uptime_label.pack(side=tk.LEFT)
         
+        # 资源占用
         resource_frame = ttk.LabelFrame(parent, text="资源占用", padding="10")
         resource_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -418,6 +607,7 @@ class SaveAnyMonitor:
         self.handle_label = ttk.Label(thread_row, text="-")
         self.handle_label.pack(side=tk.LEFT)
         
+        # 网络流量
         network_frame = ttk.LabelFrame(parent, text="网络流量 (进程)", padding="10")
         network_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -439,6 +629,7 @@ class SaveAnyMonitor:
         self.total_upload_label = ttk.Label(upload_row, text="0 MB")
         self.total_upload_label.pack(side=tk.LEFT)
         
+        # 系统网络
         sys_network_frame = ttk.LabelFrame(parent, text="系统网络流量 (全局)", padding="10")
         sys_network_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -451,6 +642,7 @@ class SaveAnyMonitor:
         self.sys_upload_label = ttk.Label(sys_net_row, text="0 KB/s")
         self.sys_upload_label.pack(side=tk.LEFT)
         
+        # 控制按钮
         control_frame = ttk.LabelFrame(parent, text="控制", padding="10")
         control_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -474,6 +666,7 @@ class SaveAnyMonitor:
         self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500)
         self.path_label.pack(side=tk.LEFT, padx=(5, 0))
         
+        # 简要日志
         log_frame = ttk.LabelFrame(parent, text="最近日志", padding="5")
         log_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -487,12 +680,15 @@ class SaveAnyMonitor:
         self.log(f"正在监控进程: {self.target_process}")
     
     def create_log_tab(self, parent):
+        """创建日志标签页"""
+        # 说明
         info_frame = ttk.LabelFrame(parent, text="日志捕获", padding="10")
         info_frame.pack(fill=tk.X, pady=(0, 10))
         
-        info_text = "通过本监控程序启动 SaveAny-Bot 可以捕获其控制台输出并保存到日志文件。"
+        info_text = "通过本监控程序启动 SaveAny-Bot 可以捕获其控制台输出并保存到日志文件。\n日志文件保存在 SaveAny-Bot 同目录下的 logs 文件夹中。"
         ttk.Label(info_frame, text=info_text, wraplength=680).pack(fill=tk.X)
         
+        # 日志设置
         settings_frame = ttk.Frame(parent)
         settings_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -503,6 +699,7 @@ class SaveAnyMonitor:
         self.log_path_label = ttk.Label(settings_frame, text="未启动", foreground="gray")
         self.log_path_label.pack(side=tk.LEFT, padx=(5, 0))
         
+        # 按钮
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -512,400 +709,24 @@ class SaveAnyMonitor:
         self.auto_scroll_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(btn_frame, text="自动滚动", variable=self.auto_scroll_var).pack(side=tk.LEFT)
         
+        # 日志显示区域
         log_display_frame = ttk.LabelFrame(parent, text="SaveAny-Bot 控制台输出", padding="5")
         log_display_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.console_log = scrolledtext.ScrolledText(log_display_frame, wrap=tk.WORD, font=("Consolas", 9), bg='#1e1e1e', fg='#d4d4d4', insertbackground='white')
+        self.console_log = scrolledtext.ScrolledText(
+            log_display_frame,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='white'
+        )
         self.console_log.pack(fill=tk.BOTH, expand=True)
         self.console_log.insert(tk.END, "等待 SaveAny-Bot 启动...\n提示: 请通过本监控程序的「启动进程」按钮启动 SaveAny-Bot 以捕获日志\n")
     
-    def create_settings_tab(self, parent):
-        # 日志位置设置
-        log_frame = ttk.LabelFrame(parent, text="📁 日志保存位置", padding="10")
-        log_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Label(log_frame, text="设置 SaveAny-Bot 日志文件的保存位置（默认为程序目录下的 logs 文件夹）").pack(fill=tk.X, pady=(0, 10))
-        
-        log_path_row = ttk.Frame(log_frame)
-        log_path_row.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(log_path_row, text="日志目录:").pack(side=tk.LEFT)
-        self.log_dir_entry = ttk.Entry(log_path_row, width=50)
-        self.log_dir_entry.pack(side=tk.LEFT, padx=(5, 10), fill=tk.X, expand=True)
-        if self.custom_log_dir:
-            self.log_dir_entry.insert(0, self.custom_log_dir)
-        
-        ttk.Button(log_path_row, text="浏览...", command=self.browse_log_dir).pack(side=tk.LEFT)
-        
-        log_btn_row = ttk.Frame(log_frame)
-        log_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(log_btn_row, text="应用日志位置", command=self.apply_log_dir).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(log_btn_row, text="恢复默认", command=self.reset_log_dir).pack(side=tk.LEFT)
-        
-        # SOCKS5 代理设置
-        proxy_frame = ttk.LabelFrame(parent, text="🌐 SOCKS5 代理设置", padding="10")
-        proxy_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Label(proxy_frame, text="设置 SaveAny-Bot 使用的 SOCKS5 代理（将自动更新到 config.toml）").pack(fill=tk.X, pady=(0, 10))
-        
-        proxy_enable_row = ttk.Frame(proxy_frame)
-        proxy_enable_row.pack(fill=tk.X, pady=(0, 5))
-        
-        self.proxy_enable_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(proxy_enable_row, text="启用代理", variable=self.proxy_enable_var).pack(side=tk.LEFT)
-        
-        proxy_addr_row = ttk.Frame(proxy_frame)
-        proxy_addr_row.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(proxy_addr_row, text="代理地址:", width=10).pack(side=tk.LEFT)
-        self.proxy_host_entry = ttk.Entry(proxy_addr_row, width=20)
-        self.proxy_host_entry.insert(0, "127.0.0.1")
-        self.proxy_host_entry.pack(side=tk.LEFT, padx=(5, 10))
-        
-        ttk.Label(proxy_addr_row, text="端口:").pack(side=tk.LEFT)
-        self.proxy_port_entry = ttk.Entry(proxy_addr_row, width=8)
-        self.proxy_port_entry.insert(0, "7897")
-        self.proxy_port_entry.pack(side=tk.LEFT, padx=(5, 0))
-        
-        proxy_auth_row = ttk.Frame(proxy_frame)
-        proxy_auth_row.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(proxy_auth_row, text="用户名:", width=10).pack(side=tk.LEFT)
-        self.proxy_user_entry = ttk.Entry(proxy_auth_row, width=15)
-        self.proxy_user_entry.pack(side=tk.LEFT, padx=(5, 10))
-        
-        ttk.Label(proxy_auth_row, text="密码:").pack(side=tk.LEFT)
-        self.proxy_pass_entry = ttk.Entry(proxy_auth_row, width=15, show="*")
-        self.proxy_pass_entry.pack(side=tk.LEFT, padx=(5, 10))
-        
-        self.proxy_show_pass_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(proxy_auth_row, text="显示密码", variable=self.proxy_show_pass_var, command=self.toggle_proxy_password).pack(side=tk.LEFT)
-        
-        proxy_btn_row = ttk.Frame(proxy_frame)
-        proxy_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(proxy_btn_row, text="应用代理设置", command=self.apply_proxy_settings).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_row, text="从配置读取", command=self.load_proxy_from_config).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_row, text="测试连接", command=self.test_proxy_connection).pack(side=tk.LEFT)
-        
-        # SOCKS5 代理运行状态显示
-        proxy_status_row = ttk.Frame(proxy_frame)
-        proxy_status_row.pack(fill=tk.X, pady=(10, 0))
-        
-        ttk.Label(proxy_status_row, text="代理状态:").pack(side=tk.LEFT)
-        self.proxy_status_label = ttk.Label(proxy_status_row, text="未检测", foreground="gray")
-        self.proxy_status_label.pack(side=tk.LEFT, padx=(5, 15))
-        
-        ttk.Label(proxy_status_row, text="延迟:").pack(side=tk.LEFT)
-        self.proxy_latency_label = ttk.Label(proxy_status_row, text="-", foreground="gray")
-        self.proxy_latency_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 下载位置设置
-        download_frame = ttk.LabelFrame(parent, text="📥 下载保存位置", padding="10")
-        download_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Label(download_frame, text="设置 SaveAny-Bot 下载文件的默认保存位置（将自动更新到 config.toml）").pack(fill=tk.X, pady=(0, 10))
-        
-        download_path_row = ttk.Frame(download_frame)
-        download_path_row.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Label(download_path_row, text="下载目录:").pack(side=tk.LEFT)
-        self.download_dir_entry = ttk.Entry(download_path_row, width=50)
-        self.download_dir_entry.pack(side=tk.LEFT, padx=(5, 10), fill=tk.X, expand=True)
-        
-        ttk.Button(download_path_row, text="浏览...", command=self.browse_download_dir).pack(side=tk.LEFT)
-        
-        download_btn_row = ttk.Frame(download_frame)
-        download_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(download_btn_row, text="应用下载位置", command=self.apply_download_dir).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(download_btn_row, text="从配置读取", command=self.load_download_from_config).pack(side=tk.LEFT)
-        
-        self.settings_status = ttk.Label(parent, text="提示: 修改设置后需要重启 SaveAny-Bot 才能生效", foreground="blue")
-        self.settings_status.pack(fill=tk.X, pady=(10, 0))
-    
-    def browse_log_dir(self):
-        dir_path = filedialog.askdirectory(title="选择日志保存目录")
-        if dir_path:
-            self.log_dir_entry.delete(0, tk.END)
-            self.log_dir_entry.insert(0, dir_path)
-    
-    def apply_log_dir(self):
-        log_dir = self.log_dir_entry.get().strip()
-        if log_dir:
-            if not os.path.exists(log_dir):
-                try:
-                    os.makedirs(log_dir, exist_ok=True)
-                except Exception as e:
-                    messagebox.showerror("错误", f"创建目录失败: {str(e)}")
-                    return
-            self.custom_log_dir = log_dir
-            self.settings['log_dir'] = log_dir
-            self.save_settings()
-            self.settings_status.config(text=f"✓ 日志目录已设置为: {log_dir}", foreground="green")
-            self.log(f"日志目录已更改为: {log_dir}")
-        else:
-            messagebox.showwarning("警告", "请输入或选择日志目录")
-    
-    def reset_log_dir(self):
-        self.log_dir_entry.delete(0, tk.END)
-        self.custom_log_dir = None
-        if 'log_dir' in self.settings:
-            del self.settings['log_dir']
-        self.save_settings()
-        self.settings_status.config(text="✓ 日志目录已恢复为默认（程序目录/logs）", foreground="green")
-        self.log("日志目录已恢复为默认")
-    
-    def toggle_proxy_password(self):
-        if self.proxy_show_pass_var.get():
-            self.proxy_pass_entry.config(show="")
-        else:
-            self.proxy_pass_entry.config(show="*")
-    
-    def apply_proxy_settings(self):
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径以加载配置文件")
-            return
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            enable = self.proxy_enable_var.get()
-            host = self.proxy_host_entry.get().strip()
-            port = self.proxy_port_entry.get().strip()
-            user = self.proxy_user_entry.get().strip()
-            password = self.proxy_pass_entry.get().strip()
-            
-            if user and password:
-                import urllib.parse
-                user_encoded = urllib.parse.quote(user, safe='')
-                pass_encoded = urllib.parse.quote(password, safe='')
-                proxy_url = f"socks5://{user_encoded}:{pass_encoded}@{host}:{port}"
-            else:
-                proxy_url = f"socks5://{host}:{port}"
-            
-            enable_str = "true" if enable else "false"
-            
-            # 使用正确的 [telegram.proxy] 格式
-            if '[telegram.proxy]' in content:
-                content = re.sub(r'(\[telegram\.proxy\].*?enable\s*=\s*)(true|false)', f'\\1{enable_str}', content, flags=re.DOTALL)
-                content = re.sub(r'(\[telegram\.proxy\].*?url\s*=\s*")[^"]*(")' , f'\\1{proxy_url}\\2', content, flags=re.DOTALL)
-            else:
-                # 在 [telegram] 部分后添加 [telegram.proxy]
-                if '[telegram]' in content:
-                    proxy_config = f'\n[telegram.proxy]\n# 启用代理连接 telegram\nenable = {enable_str}\nurl = "{proxy_url}"\n'
-                    # 找到 [telegram] 部分的末尾（下一个 [ 开头的行之前）
-                    telegram_match = re.search(r'(\[telegram\][^\[]*)', content)
-                    if telegram_match:
-                        telegram_section = telegram_match.group(1)
-                        content = content.replace(telegram_section, telegram_section.rstrip() + proxy_config)
-                    else:
-                        content += proxy_config
-                else:
-                    proxy_config = f'\n[telegram.proxy]\n# 启用代理连接 telegram\nenable = {enable_str}\nurl = "{proxy_url}"\n'
-                    content += proxy_config
-            
-            backup_path = config_path + ".bak"
-            with open(config_path, 'r', encoding='utf-8') as f:
-                backup_content = f.read()
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(backup_content)
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.settings_status.config(text=f"✓ 代理设置已保存（{'已启用' if enable else '已禁用'}）", foreground="green")
-            self.log(f"代理设置已更新: {proxy_url if enable else '已禁用'}")
-            messagebox.showinfo("成功", "代理设置已保存！\n如果 SaveAny-Bot 正在运行，需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存代理设置失败: {str(e)}")
-    
-    def load_proxy_from_config(self):
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径以加载配置文件")
-            return
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # 使用正确的 [telegram.proxy] 格式
-            enable_match = re.search(r'\[telegram\.proxy\].*?enable\s*=\s*(true|false)', content, re.DOTALL)
-            if enable_match:
-                self.proxy_enable_var.set(enable_match.group(1) == 'true')
-            
-            url_match = re.search(r'\[telegram\.proxy\].*?url\s*=\s*"([^"]*)"', content, re.DOTALL)
-            if url_match:
-                proxy_url = url_match.group(1)
-                url_pattern = r'socks5://(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)'
-                url_parts = re.match(url_pattern, proxy_url)
-                if url_parts:
-                    user, password, host, port = url_parts.groups()
-                    self.proxy_host_entry.delete(0, tk.END)
-                    self.proxy_host_entry.insert(0, host or "127.0.0.1")
-                    self.proxy_port_entry.delete(0, tk.END)
-                    self.proxy_port_entry.insert(0, port or "7897")
-                    self.proxy_user_entry.delete(0, tk.END)
-                    if user:
-                        import urllib.parse
-                        self.proxy_user_entry.insert(0, urllib.parse.unquote(user))
-                    self.proxy_pass_entry.delete(0, tk.END)
-                    if password:
-                        import urllib.parse
-                        self.proxy_pass_entry.insert(0, urllib.parse.unquote(password))
-            
-            self.settings_status.config(text="✓ 已从配置文件读取代理设置", foreground="green")
-        except Exception as e:
-            messagebox.showerror("错误", f"读取代理设置失败: {str(e)}")
-    
-    def test_proxy_connection(self):
-        """测试 SOCKS5 代理连接状态"""
-        host = self.proxy_host_entry.get().strip()
-        port = self.proxy_port_entry.get().strip()
-        user = self.proxy_user_entry.get().strip()
-        password = self.proxy_pass_entry.get().strip()
-        
-        if not host or not port:
-            messagebox.showwarning("警告", "请先填写代理地址和端口")
-            return
-        
-        self.proxy_status_label.config(text="检测中...", foreground="orange")
-        self.proxy_latency_label.config(text="-", foreground="gray")
-        self.root.update()
-        
-        # 在后台线程中测试连接
-        def test_connection():
-            try:
-                import socks
-                start_time = time.time()
-                
-                # 创建 SOCKS5 代理连接
-                s = socks.socksocket()
-                s.set_proxy(socks.SOCKS5, host, int(port), username=user if user else None, password=password if password else None)
-                s.settimeout(10)
-                
-                # 尝试连接 Telegram API 服务器
-                s.connect(("api.telegram.org", 443))
-                latency = (time.time() - start_time) * 1000  # 转换为毫秒
-                s.close()
-                
-                # 更新 UI（在主线程中）
-                self.root.after(0, lambda: self.update_proxy_status(True, latency))
-            except ImportError:
-                # 如果没有安装 PySocks，尝试直接 TCP 连接测试
-                try:
-                    start_time = time.time()
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.settimeout(5)
-                    s.connect((host, int(port)))
-                    latency = (time.time() - start_time) * 1000
-                    s.close()
-                    self.root.after(0, lambda: self.update_proxy_status(True, latency, "TCP连接正常"))
-                except Exception as e:
-                    self.root.after(0, lambda: self.update_proxy_status(False, 0, str(e)))
-            except Exception as e:
-                self.root.after(0, lambda: self.update_proxy_status(False, 0, str(e)))
-        
-        threading.Thread(target=test_connection, daemon=True).start()
-    
-    def update_proxy_status(self, success, latency, message=None):
-        """更新代理状态显示"""
-        if success:
-            if latency < 200:
-                latency_color = "green"
-            elif latency < 500:
-                latency_color = "orange"
-            else:
-                latency_color = "red"
-            
-            status_text = message if message else "连接正常"
-            self.proxy_status_label.config(text=f"✓ {status_text}", foreground="green")
-            self.proxy_latency_label.config(text=f"{latency:.0f} ms", foreground=latency_color)
-            self.settings_status.config(text=f"✓ 代理连接测试成功，延迟: {latency:.0f}ms", foreground="green")
-        else:
-            error_msg = message if message else "连接失败"
-            self.proxy_status_label.config(text=f"✗ {error_msg[:20]}", foreground="red")
-            self.proxy_latency_label.config(text="-", foreground="gray")
-            self.settings_status.config(text=f"✗ 代理连接测试失败: {error_msg}", foreground="red")
-    
-    def browse_download_dir(self):
-        dir_path = filedialog.askdirectory(title="选择下载保存目录")
-        if dir_path:
-            self.download_dir_entry.delete(0, tk.END)
-            self.download_dir_entry.insert(0, dir_path)
-    
-    def apply_download_dir(self):
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径以加载配置文件")
-            return
-        
-        download_dir = self.download_dir_entry.get().strip()
-        if not download_dir:
-            messagebox.showwarning("警告", "请输入或选择下载目录")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            download_dir = download_dir.replace('\\', '/')
-            
-            # 使用正确的 [[storages]] 格式
-            # 查找现有的 [[storages]] 配置并更新 base_path
-            if '[[storages]]' in content:
-                # 查找 type = "local" 的 storage 并更新 base_path
-                local_storage_pattern = r'(\[\[storages\]\][^\[]*type\s*=\s*"local"[^\[]*base_path\s*=\s*")[^"]*(")'  
-                if re.search(local_storage_pattern, content, re.DOTALL):
-                    content = re.sub(local_storage_pattern, f'\\1{download_dir}\\2', content, flags=re.DOTALL)
-                else:
-                    # 没有找到 local 类型的 storage，添加一个新的
-                    storage_config = f'\n[[storages]]\nname = "本地磁盘"\ntype = "local"\nenable = true\nbase_path = "{download_dir}"\n'
-                    content += storage_config
-            else:
-                # 没有 [[storages]] 配置，添加一个新的
-                storage_config = f'\n[[storages]]\nname = "本地磁盘"\ntype = "local"\nenable = true\nbase_path = "{download_dir}"\n'
-                content += storage_config
-            
-            backup_path = config_path + ".bak"
-            with open(config_path, 'r', encoding='utf-8') as f:
-                backup_content = f.read()
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(backup_content)
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.settings_status.config(text=f"✓ 下载目录已设置为: {download_dir}", foreground="green")
-            self.log(f"下载目录已更新: {download_dir}")
-            messagebox.showinfo("成功", "下载目录设置已保存！\n如果 SaveAny-Bot 正在运行，需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存下载目录设置失败: {str(e)}")
-    
-    def load_download_from_config(self):
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径以加载配置文件")
-            return
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # 使用正确的 [[storages]] 格式读取
-            # 查找 type = "local" 的 storage 的 base_path
-            local_storage_pattern = r'\[\[storages\]\][^\[]*type\s*=\s*"local"[^\[]*base_path\s*=\s*"([^"]*)"'
-            path_match = re.search(local_storage_pattern, content, re.DOTALL)
-            if path_match:
-                download_path = path_match.group(1)
-                self.download_dir_entry.delete(0, tk.END)
-                self.download_dir_entry.insert(0, download_path)
-                self.settings_status.config(text="✓ 已从配置文件读取下载目录设置", foreground="green")
-            else:
-                self.settings_status.config(text="配置文件中未找到本地存储设置", foreground="orange")
-        except Exception as e:
-            messagebox.showerror("错误", f"读取下载目录设置失败: {str(e)}")
-    
     def create_config_tab(self, parent):
-        ttk.Label(parent, text="编辑 SaveAny-Bot 的配置文件 (config.toml)，修改后点击保存按钮。", wraplength=650).pack(fill=tk.X, pady=(0, 10))
+        info_label = ttk.Label(parent, text="编辑 SaveAny-Bot 的配置文件 (config.toml)，修改后点击保存按钮。", wraplength=650)
+        info_label.pack(fill=tk.X, pady=(0, 10))
         
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X, pady=(0, 10))
@@ -936,11 +757,104 @@ class SaveAnyMonitor:
         self.config_status = ttk.Label(parent, text="提示: 请先选择 SaveAny-Bot 程序路径以加载配置文件", foreground="blue")
         self.config_status.pack(fill=tk.X, pady=(10, 0))
     
+    def create_settings_tab(self, parent):
+        """创建设置标签页 - 代理和存储设置"""
+        # 代理设置
+        proxy_frame = ttk.LabelFrame(parent, text="Telegram 代理设置 [telegram.proxy]", padding="10")
+        proxy_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 代理启用
+        proxy_enable_row = ttk.Frame(proxy_frame)
+        proxy_enable_row.pack(fill=tk.X, pady=(0, 5))
+        self.proxy_enable_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(proxy_enable_row, text="启用代理", variable=self.proxy_enable_var).pack(side=tk.LEFT)
+        
+        # 代理状态显示
+        ttk.Label(proxy_enable_row, text="状态:").pack(side=tk.LEFT, padx=(20, 5))
+        self.proxy_status_label = ttk.Label(proxy_enable_row, text="未测试", foreground="gray")
+        self.proxy_status_label.pack(side=tk.LEFT)
+        
+        # 代理 URL
+        proxy_url_row = ttk.Frame(proxy_frame)
+        proxy_url_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(proxy_url_row, text="代理地址:", width=10).pack(side=tk.LEFT)
+        self.proxy_url_entry = ttk.Entry(proxy_url_row, width=50)
+        self.proxy_url_entry.insert(0, "socks5://127.0.0.1:7890")
+        self.proxy_url_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        
+        # 代理按钮
+        proxy_btn_row = ttk.Frame(proxy_frame)
+        proxy_btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(proxy_btn_row, text="测试连接", command=self.test_proxy_connection).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(proxy_btn_row, text="从配置加载", command=self.load_proxy_from_config).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(proxy_btn_row, text="保存到配置", command=self.save_proxy_to_config).pack(side=tk.LEFT)
+        
+        # 存储设置
+        storage_frame = ttk.LabelFrame(parent, text="存储设置 [[storages]]", padding="10")
+        storage_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 存储名称
+        storage_name_row = ttk.Frame(storage_frame)
+        storage_name_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(storage_name_row, text="存储名称:", width=10).pack(side=tk.LEFT)
+        self.storage_name_entry = ttk.Entry(storage_name_row, width=30)
+        self.storage_name_entry.insert(0, "本地磁盘")
+        self.storage_name_entry.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 存储类型
+        ttk.Label(storage_name_row, text="类型:").pack(side=tk.LEFT, padx=(20, 5))
+        self.storage_type_var = tk.StringVar(value="local")
+        storage_type_combo = ttk.Combobox(storage_name_row, textvariable=self.storage_type_var, 
+                                          values=["local", "alist", "webdav", "s3", "telegram"], width=10, state="readonly")
+        storage_type_combo.pack(side=tk.LEFT)
+        
+        # 存储启用
+        self.storage_enable_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(storage_name_row, text="启用", variable=self.storage_enable_var).pack(side=tk.LEFT, padx=(20, 0))
+        
+        # 存储路径
+        storage_path_row = ttk.Frame(storage_frame)
+        storage_path_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(storage_path_row, text="保存路径:", width=10).pack(side=tk.LEFT)
+        self.storage_path_entry = ttk.Entry(storage_path_row, width=50)
+        self.storage_path_entry.insert(0, "./downloads")
+        self.storage_path_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Button(storage_path_row, text="浏览...", command=self.browse_storage_path).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 存储按钮
+        storage_btn_row = ttk.Frame(storage_frame)
+        storage_btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(storage_btn_row, text="从配置加载", command=self.load_storage_from_config).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(storage_btn_row, text="保存到配置", command=self.save_storage_to_config).pack(side=tk.LEFT)
+        
+        # 配置格式说明
+        info_frame = ttk.LabelFrame(parent, text="配置格式说明", padding="10")
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        info_text = """代理配置格式:
+[telegram.proxy]
+enable = true
+url = "socks5://用户名:密码@IP:端口"
+
+存储配置格式:
+[[storages]]
+name = "本地磁盘"
+type = "local"
+enable = true
+base_path = "Z:/sp/uuu"""
+        info_label = ttk.Label(info_frame, text=info_text, font=("Consolas", 9), justify=tk.LEFT)
+        info_label.pack(fill=tk.X)
+        
+        # 状态提示
+        self.settings_status = ttk.Label(parent, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
+        self.settings_status.pack(fill=tk.X, pady=(10, 0))
+    
     def create_web_tab(self, parent):
         info_frame = ttk.LabelFrame(parent, text="Web 监控服务", padding="10")
         info_frame.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(info_frame, text="启动 Web 服务后，可通过浏览器远程查看监控状态、日志和编辑配置。", wraplength=650).pack(fill=tk.X)
+        info_text = "启动 Web 服务后，可通过浏览器远程查看监控状态、日志和编辑配置。"
+        ttk.Label(info_frame, text=info_text, wraplength=650).pack(fill=tk.X)
         
         port_frame = ttk.Frame(parent)
         port_frame.pack(fill=tk.X, pady=(0, 10))
@@ -983,47 +897,60 @@ class SaveAnyMonitor:
             self.log_text.delete('1.0', '2.0')
     
     def add_console_log(self, message):
+        """添加控制台日志"""
         global recent_logs
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_line = f"[{timestamp}] {message}"
+        
+        # 添加到全局日志队列（用于Web显示）
         recent_logs.append(log_line)
+        
+        # 写入日志文件
         if self.log_file:
             try:
                 self.log_file.write(log_line + '\n')
                 self.log_file.flush()
             except Exception:
                 pass
+        
+        # 添加到队列等待UI更新
         self.log_queue.put(log_line)
     
     def process_log_queue(self):
+        """处理日志队列，更新UI"""
         try:
             while True:
                 log_line = self.log_queue.get_nowait()
                 self.console_log.insert(tk.END, log_line + '\n')
                 if self.auto_scroll_var.get():
                     self.console_log.see(tk.END)
+                # 限制显示行数
                 lines = int(self.console_log.index('end-1c').split('.')[0])
                 if lines > 2000:
                     self.console_log.delete('1.0', '500.0')
         except queue.Empty:
             pass
+        
         if self.running:
             self.root.after(100, self.process_log_queue)
     
     def clear_console_log(self):
+        """清空控制台日志显示"""
         self.console_log.delete('1.0', tk.END)
     
     def open_log_folder(self):
-        log_dir = self.custom_log_dir
-        if not log_dir and self.target_path:
+        """打开日志文件夹"""
+        if self.target_path:
             log_dir = os.path.join(os.path.dirname(self.target_path), "logs")
-        if log_dir and os.path.exists(log_dir):
-            if sys.platform == 'win32':
-                os.startfile(log_dir)
+            if os.path.exists(log_dir):
+                if sys.platform == 'win32':
+                    os.startfile(log_dir)
+                else:
+                    subprocess.Popen(['xdg-open', log_dir])
             else:
-                subprocess.Popen(['xdg-open', log_dir])
+                messagebox.showinfo("提示", f"日志文件夹不存在: {log_dir}")
         else:
-            messagebox.showinfo("提示", f"日志文件夹不存在: {log_dir}")
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
     
     def find_process(self):
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
@@ -1064,10 +991,13 @@ class SaveAnyMonitor:
     
     def update_ui(self):
         global monitor_data
+        
         if not self.running:
             return
+        
         try:
             proc = self.find_process()
+            
             if proc:
                 try:
                     self.status_label.config(text="运行中", foreground="green")
@@ -1117,27 +1047,32 @@ class SaveAnyMonitor:
                         try:
                             io_counters = proc.io_counters()
                             current_time = time.time()
+                            
                             if self.proc_last_io and self.proc_last_time:
                                 time_diff = current_time - self.proc_last_time
                                 if time_diff > 0:
                                     read_speed = (io_counters.read_bytes - self.proc_last_io.read_bytes) / time_diff
                                     write_speed = (io_counters.write_bytes - self.proc_last_io.write_bytes) / time_diff
+                                    
                                     dl_speed = self.format_speed(max(0, read_speed))
                                     ul_speed = self.format_speed(max(0, write_speed))
                                     self.download_label.config(text=dl_speed)
                                     self.upload_label.config(text=ul_speed)
                                     monitor_data["download_speed"] = dl_speed
                                     monitor_data["upload_speed"] = ul_speed
+                            
                             total_dl = self.format_bytes(io_counters.read_bytes)
                             total_ul = self.format_bytes(io_counters.write_bytes)
                             self.total_download_label.config(text=total_dl)
                             self.total_upload_label.config(text=total_ul)
                             monitor_data["total_download"] = total_dl
                             monitor_data["total_upload"] = total_ul
+                            
                             self.proc_last_io = io_counters
                             self.proc_last_time = current_time
                         except (psutil.AccessDenied, AttributeError):
                             pass
+                    
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     self.set_offline_status()
             else:
@@ -1146,23 +1081,27 @@ class SaveAnyMonitor:
             try:
                 net_io = psutil.net_io_counters()
                 current_time = time.time()
+                
                 if self.last_net_io and self.last_net_time:
                     time_diff = current_time - self.last_net_time
                     if time_diff > 0:
                         download_speed = (net_io.bytes_recv - self.last_net_io.bytes_recv) / time_diff
                         upload_speed = (net_io.bytes_sent - self.last_net_io.bytes_sent) / time_diff
+                        
                         sys_dl = self.format_speed(max(0, download_speed))
                         sys_ul = self.format_speed(max(0, upload_speed))
                         self.sys_download_label.config(text=sys_dl)
                         self.sys_upload_label.config(text=sys_ul)
                         monitor_data["sys_download"] = sys_dl
                         monitor_data["sys_upload"] = sys_ul
+                
                 self.last_net_io = net_io
                 self.last_net_time = current_time
             except Exception:
                 pass
             
             monitor_data["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
         except Exception as e:
             self.log(f"更新错误: {str(e)}")
         
@@ -1171,6 +1110,7 @@ class SaveAnyMonitor:
     
     def set_offline_status(self):
         global monitor_data
+        
         self.status_label.config(text="未运行", foreground="red")
         self.pid_label.config(text="-")
         self.uptime_label.config(text="-")
@@ -1186,7 +1126,13 @@ class SaveAnyMonitor:
         self.total_upload_label.config(text="0 MB")
         self.proc_last_io = None
         self.proc_last_time = None
-        monitor_data.update({"status": "未运行", "pid": "-", "uptime": "-", "cpu": 0, "memory": "0 MB", "memory_percent": 0, "threads": "-", "handles": "-", "download_speed": "0 KB/s", "upload_speed": "0 KB/s", "total_download": "0 MB", "total_upload": "0 MB"})
+        
+        monitor_data.update({
+            "status": "未运行", "pid": "-", "uptime": "-", "cpu": 0,
+            "memory": "0 MB", "memory_percent": 0, "threads": "-", "handles": "-",
+            "download_speed": "0 KB/s", "upload_speed": "0 KB/s",
+            "total_download": "0 MB", "total_upload": "0 MB"
+        })
     
     def start_monitoring(self):
         self.update_ui()
@@ -1202,7 +1148,10 @@ class SaveAnyMonitor:
                 self.load_config()
     
     def browse_exe(self):
-        filepath = filedialog.askopenfilename(title="选择 SaveAny-Bot 程序", filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")])
+        filepath = filedialog.askopenfilename(
+            title="选择 SaveAny-Bot 程序",
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
+        )
         if filepath:
             self.target_path = filepath
             self.target_process = os.path.basename(filepath)
@@ -1211,36 +1160,60 @@ class SaveAnyMonitor:
             self.update_config_path()
     
     def start_process(self):
+        """启动进程并捕获输出"""
         if self.find_process():
             messagebox.showinfo("提示", "进程已在运行中")
             return
+        
         if not self.target_path:
             messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
             self.browse_exe()
             return
+        
         if not os.path.exists(self.target_path):
             messagebox.showerror("错误", f"程序文件不存在: {self.target_path}")
             return
+        
         try:
             work_dir = os.path.dirname(self.target_path)
-            if self.custom_log_dir:
-                log_dir = self.custom_log_dir
-            else:
-                log_dir = os.path.join(work_dir, "logs")
+            
+            # 创建日志目录
+            log_dir = os.path.join(work_dir, "logs")
             os.makedirs(log_dir, exist_ok=True)
             
+            # 创建日志文件
             log_filename = datetime.now().strftime("bot_%Y%m%d_%H%M%S.log")
             self.log_file_path = os.path.join(log_dir, log_filename)
             self.log_file = open(self.log_file_path, 'w', encoding='utf-8')
             self.log_path_label.config(text=self.log_file_path, foreground="green")
             
+            # 启动进程，捕获输出
             if sys.platform == 'win32':
+                # Windows: 使用 STARTUPINFO 隐藏窗口
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
-                self.managed_process = subprocess.Popen([self.target_path], cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, startupinfo=startupinfo, bufsize=1, universal_newlines=True, encoding='utf-8', errors='replace')
+                
+                self.managed_process = subprocess.Popen(
+                    [self.target_path],
+                    cwd=work_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    startupinfo=startupinfo,
+                    bufsize=1,
+                    universal_newlines=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
             else:
-                self.managed_process = subprocess.Popen([self.target_path], cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True)
+                self.managed_process = subprocess.Popen(
+                    [self.target_path],
+                    cwd=work_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                    universal_newlines=True
+                )
             
             self.log(f"正在启动进程: {self.target_path}")
             self.log(f"日志文件: {self.log_file_path}")
@@ -1250,15 +1223,19 @@ class SaveAnyMonitor:
             self.add_console_log(f"日志文件: {self.log_file_path}")
             self.add_console_log("=" * 50)
             
+            # 启动输出读取线程
             output_thread = threading.Thread(target=self.read_process_output, daemon=True)
             output_thread.start()
+            
         except Exception as e:
             messagebox.showerror("错误", f"启动失败: {str(e)}")
             self.log(f"启动失败: {str(e)}")
     
     def read_process_output(self):
+        """读取进程输出"""
         if not self.managed_process:
             return
+        
         try:
             for line in iter(self.managed_process.stdout.readline, ''):
                 if not self.running:
@@ -1266,9 +1243,12 @@ class SaveAnyMonitor:
                 line = line.rstrip('\n\r')
                 if line:
                     self.add_console_log(line)
+            
+            # 进程结束
             self.managed_process.stdout.close()
             return_code = self.managed_process.wait()
             self.add_console_log(f"=== SaveAny-Bot 已退出，返回码: {return_code} ===")
+            
         except Exception as e:
             self.add_console_log(f"读取输出错误: {str(e)}")
         finally:
@@ -1285,6 +1265,7 @@ class SaveAnyMonitor:
         if not proc:
             messagebox.showinfo("提示", "进程未在运行")
             return
+        
         if messagebox.askyesno("确认", "确定要停止 SaveAny-Bot 进程吗？"):
             try:
                 proc.terminate()
@@ -1305,11 +1286,13 @@ class SaveAnyMonitor:
             try:
                 if not self.target_path:
                     self.target_path = proc.exe()
+                
                 proc.terminate()
                 try:
                     proc.wait(timeout=5)
                 except psutil.TimeoutExpired:
                     proc.kill()
+                
                 self.log("进程已停止，正在重启...")
                 time.sleep(1)
                 self.start_process()
@@ -1348,11 +1331,13 @@ class SaveAnyMonitor:
             else:
                 self.config_status.config(text="请先选择 SaveAny-Bot 程序路径", foreground="red")
                 return
+        
         if not os.path.exists(config_path):
             self.config_status.config(text=f"配置文件不存在: {config_path}", foreground="red")
             self.config_editor.delete('1.0', tk.END)
             self.config_editor.insert('1.0', f"# 配置文件不存在: {config_path}")
             return
+        
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -1368,7 +1353,9 @@ class SaveAnyMonitor:
         if not config_path:
             messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
             return
+        
         content = self.config_editor.get('1.0', tk.END)
+        
         try:
             if os.path.exists(config_path):
                 backup_path = config_path + ".bak"
@@ -1376,8 +1363,10 @@ class SaveAnyMonitor:
                     backup_content = f.read()
                 with open(backup_path, 'w', encoding='utf-8') as f:
                     f.write(backup_content)
+            
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write(content)
+            
             self.config_status.config(text=f"配置已保存: {config_path}", foreground="green")
             self.log(f"配置已保存到: {config_path}")
             messagebox.showinfo("成功", "配置文件已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
@@ -1392,16 +1381,29 @@ class SaveAnyMonitor:
     def start_web_server(self):
         try:
             self.web_port = int(self.port_entry.get())
+        except ValueError:
+            messagebox.showerror("错误", "请输入有效的端口号")
+            return
+        
+        if self.web_server is not None:
+            messagebox.showinfo("提示", "Web 服务已在运行中")
+            return
+        
+        try:
             self.web_server = StoppableHTTPServer(('0.0.0.0', self.web_port), MonitorHTTPHandler)
             self.web_thread = threading.Thread(target=self.web_server.serve_forever_stoppable, daemon=True)
             self.web_thread.start()
+            
             local_ip = self.get_local_ip()
+            
             self.web_status_label.config(text="运行中", foreground="green")
             self.url_label.config(text=f"本地: http://127.0.0.1:{self.web_port}  |  局域网: http://{local_ip}:{self.web_port}")
+            
             self.start_web_btn.config(state=tk.DISABLED)
             self.stop_web_btn.config(state=tk.NORMAL)
             self.open_browser_btn.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.DISABLED)
+            
             self.log(f"Web 服务已启动，端口: {self.web_port}")
         except Exception as e:
             self.web_server = None
@@ -1414,6 +1416,7 @@ class SaveAnyMonitor:
                     self.web_server.stop()
                 except Exception:
                     pass
+            
             stop_thread = threading.Thread(target=stop_server, daemon=True)
             stop_thread.start()
             self.root.after(500, self._finish_stop_web_server)
@@ -1421,12 +1424,15 @@ class SaveAnyMonitor:
     def _finish_stop_web_server(self):
         self.web_server = None
         self.web_thread = None
+        
         self.web_status_label.config(text="已停止", foreground="gray")
         self.url_label.config(text="Web 服务未启动")
+        
         self.start_web_btn.config(state=tk.NORMAL)
         self.stop_web_btn.config(state=tk.DISABLED)
         self.open_browser_btn.config(state=tk.DISABLED)
         self.port_entry.config(state=tk.NORMAL)
+        
         self.log("Web 服务已停止")
     
     def open_web_browser(self):
@@ -1448,8 +1454,10 @@ class SaveAnyMonitor:
                 return "进程已在运行中"
             if not self.target_path:
                 return "请先在桌面程序中选择 SaveAny-Bot 程序路径"
+            # 使用 root.after 在主线程中启动
             self.root.after(0, self.start_process)
             return "启动命令已发送"
+        
         elif action == 'stop':
             proc = self.find_process()
             if not proc:
@@ -1463,6 +1471,7 @@ class SaveAnyMonitor:
                 return "进程已停止"
             except Exception as e:
                 return f"停止失败: {str(e)}"
+        
         elif action == 'restart':
             proc = self.find_process()
             if proc:
@@ -1477,34 +1486,321 @@ class SaveAnyMonitor:
                     time.sleep(1)
                 except Exception as e:
                     return f"停止失败: {str(e)}"
+            
             if not self.target_path:
                 return "请先在桌面程序中选择 SaveAny-Bot 程序路径"
             self.root.after(0, self.start_process)
             return "重启命令已发送"
+        
         return "未知操作"
+    
+    def test_proxy_connection(self):
+        """测试 SOCKS5 代理连接"""
+        proxy_url = self.proxy_url_entry.get().strip()
+        if not proxy_url:
+            self.proxy_status_label.config(text="请输入代理地址", foreground="red")
+            return
+        
+        self.proxy_status_label.config(text="测试中...", foreground="orange")
+        self.root.update()
+        
+        def do_test():
+            try:
+                import re
+                # 解析 SOCKS5 URL: socks5://[user:pass@]host:port
+                pattern = r'socks5://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)'
+                match = re.match(pattern, proxy_url)
+                if not match:
+                    self.root.after(0, lambda: self.proxy_status_label.config(text="URL 格式错误", foreground="red"))
+                    return
+                
+                username = match.group(1)
+                password = match.group(2)
+                host = match.group(3)
+                port = int(match.group(4))
+                
+                start_time = time.time()
+                
+                # 尝试连接代理服务器
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                sock.connect((host, port))
+                
+                # SOCKS5 握手
+                if username and password:
+                    # 用户名/密码认证
+                    sock.send(b'\x05\x02\x00\x02')  # 支持无认证和用户名/密码认证
+                else:
+                    sock.send(b'\x05\x01\x00')  # 无认证
+                
+                response = sock.recv(2)
+                if len(response) < 2 or response[0] != 0x05:
+                    sock.close()
+                    self.root.after(0, lambda: self.proxy_status_label.config(text="代理响应错误", foreground="red"))
+                    return
+                
+                auth_method = response[1]
+                
+                if auth_method == 0x02 and username and password:
+                    # 发送用户名/密码
+                    auth_packet = bytes([0x01, len(username)]) + username.encode() + bytes([len(password)]) + password.encode()
+                    sock.send(auth_packet)
+                    auth_response = sock.recv(2)
+                    if len(auth_response) < 2 or auth_response[1] != 0x00:
+                        sock.close()
+                        self.root.after(0, lambda: self.proxy_status_label.config(text="认证失败", foreground="red"))
+                        return
+                elif auth_method == 0xFF:
+                    sock.close()
+                    self.root.after(0, lambda: self.proxy_status_label.config(text="代理拒绝连接", foreground="red"))
+                    return
+                
+                elapsed = (time.time() - start_time) * 1000
+                sock.close()
+                
+                # 根据延迟设置颜色
+                if elapsed < 200:
+                    color = "green"
+                elif elapsed < 500:
+                    color = "orange"
+                else:
+                    color = "red"
+                
+                self.root.after(0, lambda: self.proxy_status_label.config(text=f"连接成功 ({elapsed:.0f}ms)", foreground=color))
+                
+            except socket.timeout:
+                self.root.after(0, lambda: self.proxy_status_label.config(text="连接超时", foreground="red"))
+            except ConnectionRefusedError:
+                self.root.after(0, lambda: self.proxy_status_label.config(text="连接被拒绝", foreground="red"))
+            except Exception as e:
+                self.root.after(0, lambda: self.proxy_status_label.config(text=f"错误: {str(e)[:20]}", foreground="red"))
+        
+        threading.Thread(target=do_test, daemon=True).start()
+    
+    def load_proxy_from_config(self):
+        """从配置文件加载代理设置"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 解析 [telegram.proxy] 部分
+            import re
+            
+            # 查找 enable
+            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+            if enable_match:
+                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
+            
+            # 查找 url
+            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
+            if url_match:
+                self.proxy_url_entry.delete(0, tk.END)
+                self.proxy_url_entry.insert(0, url_match.group(1))
+            
+            self.settings_status.config(text="代理设置已从配置文件加载", foreground="green")
+            self.log("已加载代理设置")
+        except Exception as e:
+            messagebox.showerror("错误", f"加载失败: {str(e)}")
+    
+    def save_proxy_to_config(self):
+        """保存代理设置到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            enable = 'true' if self.proxy_enable_var.get() else 'false'
+            url = self.proxy_url_entry.get().strip()
+            
+            # 检查是否已存在 [telegram.proxy] 部分
+            import re
+            if re.search(r'\[telegram\.proxy\]', content):
+                # 更新现有配置
+                content = re.sub(
+                    r'(\[telegram\.proxy\][\s\S]*?enable\s*=\s*)(true|false)',
+                    f'\\1{enable}',
+                    content,
+                    flags=re.IGNORECASE
+                )
+                content = re.sub(
+                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\'][^"\']*["\']',
+                    f'\\1"{url}"',
+                    content
+                )
+            else:
+                # 添加新配置
+                proxy_config = f'''\n[telegram.proxy]
+# 启用代理连接 telegram
+enable = {enable}
+url = "{url}"\n'''
+                # 在 [telegram] 部分后添加
+                if '[telegram]' in content:
+                    # 找到下一个 section 或文件末尾
+                    match = re.search(r'(\[telegram\][^\[]*)', content)
+                    if match:
+                        insert_pos = match.end()
+                        content = content[:insert_pos] + proxy_config + content[insert_pos:]
+                else:
+                    content += proxy_config
+            
+            # 备份并保存
+            backup_path = config_path + ".bak"
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(open(config_path, 'r', encoding='utf-8').read())
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.settings_status.config(text="代理设置已保存到配置文件", foreground="green")
+            self.log("已保存代理设置")
+            messagebox.showinfo("成功", "代理设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {str(e)}")
+    
+    def browse_storage_path(self):
+        """浏览选择存储路径"""
+        folder = filedialog.askdirectory(title="选择保存路径")
+        if folder:
+            self.storage_path_entry.delete(0, tk.END)
+            self.storage_path_entry.insert(0, folder.replace('/', '\\') if sys.platform == 'win32' else folder)
+    
+    def load_storage_from_config(self):
+        """从配置文件加载存储设置"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            # 查找第一个 [[storages]] 部分
+            storage_match = re.search(
+                r'\[\[storages\]\][\s\S]*?name\s*=\s*["\']([^"\']+)["\'][\s\S]*?type\s*=\s*["\']([^"\']+)["\'][\s\S]*?enable\s*=\s*(true|false)[\s\S]*?base_path\s*=\s*["\']([^"\']+)["\']',
+                content,
+                re.IGNORECASE
+            )
+            
+            if storage_match:
+                self.storage_name_entry.delete(0, tk.END)
+                self.storage_name_entry.insert(0, storage_match.group(1))
+                self.storage_type_var.set(storage_match.group(2))
+                self.storage_enable_var.set(storage_match.group(3).lower() == 'true')
+                self.storage_path_entry.delete(0, tk.END)
+                self.storage_path_entry.insert(0, storage_match.group(4))
+                self.settings_status.config(text="存储设置已从配置文件加载", foreground="green")
+                self.log("已加载存储设置")
+            else:
+                messagebox.showinfo("提示", "配置文件中未找到 [[storages]] 设置")
+        except Exception as e:
+            messagebox.showerror("错误", f"加载失败: {str(e)}")
+    
+    def save_storage_to_config(self):
+        """保存存储设置到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            name = self.storage_name_entry.get().strip()
+            storage_type = self.storage_type_var.get()
+            enable = 'true' if self.storage_enable_var.get() else 'false'
+            base_path = self.storage_path_entry.get().strip()
+            
+            import re
+            # 检查是否已存在 [[storages]] 部分
+            if re.search(r'\[\[storages\]\]', content):
+                # 更新第一个 storages 配置
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\'][^"\']*["\']',
+                    f'\\1"{name}"',
+                    content,
+                    count=1
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\'][^"\']*["\']',
+                    f'\\1"{storage_type}"',
+                    content,
+                    count=1
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?enable\s*=\s*)(true|false)',
+                    f'\\1{enable}',
+                    content,
+                    count=1,
+                    flags=re.IGNORECASE
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\'][^"\']*["\']',
+                    f'\\1"{base_path}"',
+                    content,
+                    count=1
+                )
+            else:
+                # 添加新配置
+                storage_config = f'''\n[[storages]]
+name = "{name}"
+type = "{storage_type}"
+enable = {enable}
+base_path = "{base_path}"\n'''
+                content += storage_config
+            
+            # 备份并保存
+            backup_path = config_path + ".bak"
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(open(config_path, 'r', encoding='utf-8').read())
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.settings_status.config(text="存储设置已保存到配置文件", foreground="green")
+            self.log("已保存存储设置")
+            messagebox.showinfo("成功", "存储设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {str(e)}")
     
     def on_closing(self):
         self.running = False
+        
         if self.web_server:
             try:
                 self.web_server.stop()
             except Exception:
                 pass
+        
         if self.log_file:
             try:
                 self.log_file.close()
             except Exception:
                 pass
+        
         self.root.destroy()
 
 
 def main():
     root = tk.Tk()
+    
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+    
     style = ttk.Style()
     try:
         style.theme_use('vista')
@@ -1513,6 +1809,7 @@ def main():
             style.theme_use('clam')
         except Exception:
             pass
+    
     app = SaveAnyMonitor(root)
     root.mainloop()
 
