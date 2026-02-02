@@ -305,12 +305,13 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         var logTimer = null;
         
         function showTab(name) {
+            if (logTimer) { clearInterval(logTimer); logTimer = null; }
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
             document.getElementById(name).classList.add('active');
-            if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
-            else if (name === 'tasks') { loadTasks(); }
+            if (name === 'logs') { loadLogs(); logTimer = setInterval(loadLogs, 2000); }
+            else if (name === 'tasks') { loadTasks(); logTimer = setInterval(loadTasks, 2000); }
             else if (name === 'config') loadConfig();
         }
         
@@ -1206,34 +1207,53 @@ base_path = "Z:/sp/uuu"""
             if start_match:
                 filename = start_match.group(1)
                 # 查找最近的任务并更新文件名
+                updated = False
                 for task_id in reversed(list(download_tasks.keys())):
                     if not download_tasks[task_id]['filename']:
                         download_tasks[task_id]['filename'] = filename
                         download_tasks[task_id]['status'] = '下载中'
+                        updated = True
                         break
+                
+                # 如果没有找到未关联文件名的任务，则根据文件名查找
+                if not updated:
+                    for task_id, task in download_tasks.items():
+                        if task['filename'] == filename:
+                            download_tasks[task_id]['status'] = '下载中'
+                            updated = True
+                            break
+                            
                 # 更新任务列表 UI
                 self.update_tasks_ui()
                 return
             
-            # 解析进度更新: Progress update: 文件名, 已下载/总大小
-            progress_match = re.search(r'Progress update: (.+?), (\d+)/(\d+)', message)
+            # 解析进度更新: Progress update: task_id, 已下载/总大小
+            # 优先尝试匹配带 task_id 的新格式
+            progress_match = re.search(r'Progress update: (\w+), (\d+)/(\d+)', message)
             if progress_match:
-                filename = progress_match.group(1)
+                task_id = progress_match.group(1)
                 downloaded = int(progress_match.group(2))
                 total = int(progress_match.group(3))
                 progress = (downloaded / total * 100) if total > 0 else 0
                 
-                # 查找对应的任务并更新
-                for task_id, task in download_tasks.items():
+                if task_id in download_tasks:
+                    download_tasks[task_id]['downloaded'] = downloaded
+                    download_tasks[task_id]['total'] = total
+                    download_tasks[task_id]['progress'] = round(progress, 1)
+                    download_tasks[task_id]['status'] = '下载中'
+                    self.update_tasks_ui()
+                    return
+                
+                # 如果 task_id 不在列表中，可能是文件名（旧格式兼容）
+                filename = task_id
+                for tid, task in download_tasks.items():
                     if task['filename'] == filename:
-                        download_tasks[task_id]['downloaded'] = downloaded
-                        download_tasks[task_id]['total'] = total
-                        download_tasks[task_id]['progress'] = round(progress, 1)
-                        download_tasks[task_id]['status'] = '下载中'
-                        break
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
+                        download_tasks[tid]['downloaded'] = downloaded
+                        download_tasks[tid]['total'] = total
+                        download_tasks[tid]['progress'] = round(progress, 1)
+                        download_tasks[tid]['status'] = '下载中'
+                        self.update_tasks_ui()
+                        return
             
             # 解析下载完成: file downloaded successfully 或 upload completed
             if 'downloaded successfully' in message or 'upload completed' in message or 'completed' in message.lower():
