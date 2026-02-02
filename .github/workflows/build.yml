@@ -26,12 +26,6 @@ jobs:
 
     - name: Build Client EXE with Nuitka
       run: |
-        python -m nuitka --onefile --windows-disable-console --windows-icon-from-ico=icon.ico --enable-plugin=tk-inter --assume-yes-for-downloads --output-filename=SaveAny-Monitor.exe saveany_monitor.py
-      continue-on-error: true
-
-    - name: Build Client EXE with Nuitka (no icon)
-      if: failure()
-      run: |
         python -m nuitka --onefile --windows-disable-console --enable-plugin=tk-inter --assume-yes-for-downloads --output-filename=SaveAny-Monitor.exe saveany_monitor.py
 
     - name: Build Server EXE with Nuitka
