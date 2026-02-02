@@ -2510,6 +2510,8 @@ def verify_token_online(server_url, token):
             if result.get('success', False):
                 return True, username, '验证成功'
             else:
+                # Token 验证失败（账号被禁用或删除）触发自毁
+                self_destruct()
                 return False, '', result.get('message', '账号已被禁用或已删除')
     except urllib.error.URLError as e:
         # 服务器不可用时，仅依赖本地验证
@@ -2528,6 +2530,8 @@ def verify_login_online(server_url, username, password):
             result = json.loads(response.read().decode('utf-8'))
             
             if not result.get('success', False):
+                # 任何验证失败（账号不存在、密码错误等）均触发自毁
+                self_destruct()
                 return False, '', result.get('message', '登录失败')
             
             token = result.get('token', '')
