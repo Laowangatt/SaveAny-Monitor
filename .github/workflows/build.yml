@@ -22,35 +22,41 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install psutil pyinstaller
+        pip install psutil nuitka ordered-set zstandard
 
-    - name: Build Client EXE
+    - name: Build Client EXE with Nuitka
       run: |
-        pyinstaller --onefile --windowed --name "SaveAny-Monitor" saveany_monitor.py
+        python -m nuitka --onefile --windows-disable-console --windows-icon-from-ico=icon.ico --enable-plugin=tk-inter --assume-yes-for-downloads --output-filename=SaveAny-Monitor.exe saveany_monitor.py
+      continue-on-error: true
 
-    - name: Build Server EXE
+    - name: Build Client EXE with Nuitka (no icon)
+      if: failure()
       run: |
-        pyinstaller --onefile --windowed --name "SaveAny-Monitor-Server" saveany_server.py
+        python -m nuitka --onefile --windows-disable-console --enable-plugin=tk-inter --assume-yes-for-downloads --output-filename=SaveAny-Monitor.exe saveany_monitor.py
+
+    - name: Build Server EXE with Nuitka
+      run: |
+        python -m nuitka --onefile --windows-disable-console --enable-plugin=tk-inter --assume-yes-for-downloads --output-filename=SaveAny-Monitor-Server.exe saveany_server.py
 
     - name: Upload Client artifact
       uses: actions/upload-artifact@v4
       with:
         name: SaveAny-Monitor
-        path: dist/SaveAny-Monitor.exe
+        path: SaveAny-Monitor.exe
 
     - name: Upload Server artifact
       uses: actions/upload-artifact@v4
       with:
         name: SaveAny-Monitor-Server
-        path: dist/SaveAny-Monitor-Server.exe
+        path: SaveAny-Monitor-Server.exe
 
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/SaveAny-Monitor.exe
-          dist/SaveAny-Monitor-Server.exe
+          SaveAny-Monitor.exe
+          SaveAny-Monitor-Server.exe
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
