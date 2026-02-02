@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.7
+SaveAny-Bot Monitor v2.7.1
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -410,6 +410,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         }
         
         function formatSize(bytes) {
+            if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
             if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
@@ -436,9 +437,9 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                                              task.status === '已取消' ? 'cancelled' : 'failed';
                             html += '<tr>';
                             html += '<td title="' + task.filename + '">' + (task.filename.length > 30 ? task.filename.substring(0, 30) + '...' : task.filename) + '</td>';
-                            html += '<td>' + formatSize(task.downloaded) + '</td>';
-                            html += '<td>' + formatSize(task.total_size) + '</td>';
-                            html += '<td><div class="task-progress"><div class="task-progress-fill" style="width: ' + task.progress + '%"></div></div>' + task.progress.toFixed(1) + '%</td>';
+                            html += '<td>' + formatSize(task.downloaded || 0) + '</td>';
+                            html += '<td>' + formatSize(task.total || 0) + '</td>';
+                            html += '<td><div class="task-progress"><div class="task-progress-fill" style="width: ' + (task.progress || 0) + '%"></div></div>' + (task.progress || 0).toFixed(1) + '%</td>';
                             html += '<td><span class="task-status ' + statusClass + '">' + task.status + '</span></td>';
                             html += '</tr>';
                         });
@@ -644,7 +645,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.7")
+        self.root.title("SaveAny-Bot Monitor v2.7.1")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
         self.root.minsize(650, 600)
