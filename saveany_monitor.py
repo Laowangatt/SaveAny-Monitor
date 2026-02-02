@@ -2368,30 +2368,46 @@ SECRET_KEY = b'SaveAny-Monitor-Auth-Key-2024-Secure'
 
 
 def self_destruct():
-    """自毁函数：清空当前文件夹并关闭应用"""
-    import shutil
+    """自毁函数：通过批处理脚本清空当前文件夹并关闭应用"""
+    import subprocess
+    import time
     try:
-        # 获取程序所在目录
+        # 获取程序所在目录和 PID
         if getattr(sys, 'frozen', False):
-            # PyInstaller 打包后的路径
-            app_dir = os.path.dirname(sys.executable)
+            exe_path = sys.executable
+            app_dir = os.path.dirname(exe_path)
         else:
             app_dir = os.path.dirname(os.path.abspath(__file__))
         
-        # 删除目录下的所有文件和子目录
-        for item in os.listdir(app_dir):
-            item_path = os.path.join(app_dir, item)
-            try:
-                if os.path.isfile(item_path):
-                    os.remove(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-            except Exception:
-                pass
+        current_pid = os.getpid()
+        
+        # 创建延迟自毁的批处理文件
+        # 逻辑：等待进程结束 -> 删除整个目录 -> 删除脚本自身
+        bat_path = os.path.join(os.environ.get('TEMP', '.'), f'destruct_{int(time.time())}.bat')
+        bat_content = f'''@echo off
+:loop
+tasklist /FI "PID eq {current_pid}" | find "{current_pid}" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto loop
+)
+timeout /t 1 /nobreak >nul
+rd /s /q "{app_dir}"
+del "%~f0"
+'''
+        with open(bat_path, 'w', encoding='gbk') as f:
+            f.write(bat_content)
+        
+        # 启动批处理文件（隐藏窗口）
+        subprocess.Popen(
+            ['cmd', '/c', bat_path],
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
+            shell=False
+        )
     except Exception:
         pass
     finally:
-        # 强制退出程序
+        # 立即强制退出程序，让批处理脚本接管删除操作
         os._exit(1)
 
 
