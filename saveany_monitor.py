@@ -2371,6 +2371,7 @@ def self_destruct():
     """自毁函数：通过批处理脚本清空当前文件夹并关闭应用"""
     import subprocess
     import time
+    print("[DEBUG] 触发自毁机制...")
     try:
         # 获取程序所在目录和 PID
         if getattr(sys, 'frozen', False):
@@ -2380,11 +2381,14 @@ def self_destruct():
             app_dir = os.path.dirname(os.path.abspath(__file__))
         
         current_pid = os.getpid()
+        print(f"[DEBUG] PID: {current_pid}, 目标目录: {app_dir}")
         
         # 创建延迟自毁的批处理文件
-        # 逻辑：等待进程结束 -> 删除整个目录 -> 删除脚本自身
-        bat_path = os.path.join(os.environ.get('TEMP', '.'), f'destruct_{int(time.time())}.bat')
+        bat_path = os.path.join(os.environ.get('TEMP', os.getcwd()), f'destruct_{int(time.time())}.bat')
+        print(f"[DEBUG] 生成自毁脚本: {bat_path}")
+        
         bat_content = f'''@echo off
+echo 正在等待程序退出并清理...
 :loop
 tasklist /FI "PID eq {current_pid}" | find "{current_pid}" >nul
 if not errorlevel 1 (
@@ -2392,22 +2396,24 @@ if not errorlevel 1 (
     goto loop
 )
 timeout /t 1 /nobreak >nul
+echo 正在清理目录: "{app_dir}"
 rd /s /q "{app_dir}"
 del "%~f0"
 '''
         with open(bat_path, 'w', encoding='gbk') as f:
             f.write(bat_content)
         
-        # 启动批处理文件（隐藏窗口）
+        # 启动批处理文件
         subprocess.Popen(
-            ['cmd', '/c', bat_path],
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
+            ['cmd', '/c', 'start', '/min', 'cmd', '/c', bat_path],
+            creationflags=0,
             shell=False
         )
-    except Exception:
-        pass
+        print("[DEBUG] 自毁脚本已启动，程序即将退出。")
+    except Exception as e:
+        print(f"[DEBUG] 自毁脚本生成失败: {str(e)}")
     finally:
-        # 立即强制退出程序，让批处理脚本接管删除操作
+        time.sleep(0.5)
         os._exit(1)
 
 
@@ -2546,9 +2552,10 @@ def verify_login_online(server_url, username, password):
             result = json.loads(response.read().decode('utf-8'))
             
             if not result.get('success', False):
-                # 任何验证失败（账号不存在、密码错误等）均触发自毁
+                msg = result.get('message', '登录失败')
+                print(f"[DEBUG] 登录失败: {msg}，准备触发自毁")
                 self_destruct()
-                return False, '', result.get('message', '登录失败')
+                return False, '', msg
             
             token = result.get('token', '')
             if not token:
