@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.6.1
+SaveAny-Bot Monitor v2.7
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -127,6 +127,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.save_config()
             elif parsed_path.path == '/api/control':
                 self.handle_control()
+            elif parsed_path.path == '/api/tasks/clear':
+                self.clear_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -182,6 +184,17 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .tab.active { background: #2196f3; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+        .tasks-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .tasks-table th, .tasks-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .tasks-table th { background: rgba(255,255,255,0.1); font-weight: 600; }
+        .tasks-table tr:hover { background: rgba(255,255,255,0.05); }
+        .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
+        .task-progress-fill { height: 100%; background: linear-gradient(90deg, #00c853, #69f0ae); border-radius: 4px; transition: width 0.3s ease; }
+        .task-status { padding: 4px 10px; border-radius: 12px; font-size: 0.85em; }
+        .task-status.downloading { background: #2196f3; }
+        .task-status.completed { background: #00c853; }
+        .task-status.cancelled { background: #ff9800; }
+        .task-status.failed { background: #ff5252; }
         @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 1.5em; } }
     </style>
 </head>
@@ -191,6 +204,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         
         <div class="tabs">
             <button class="tab active" onclick="showTab('monitor')">监控</button>
+            <button class="tab" onclick="showTab('tasks')">下载任务</button>
             <button class="tab" onclick="showTab('logs')">日志</button>
             <button class="tab" onclick="showTab('config')">配置</button>
         </div>
@@ -233,6 +247,32 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             </div>
         </div>
         
+        <div id="tasks" class="tab-content">
+            <div class="card">
+                <h2>下载任务列表</h2>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadTasks()">刷新列表</button>
+                    <button class="btn btn-danger" onclick="clearCompletedTasks()">清空已完成</button>
+                </div>
+                <div id="tasksContainer">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>文件名</th>
+                                <th>已下载</th>
+                                <th>总大小</th>
+                                <th>进度</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasksList">
+                            <tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
         <div id="logs" class="tab-content">
             <div class="card">
                 <h2>实时日志</h2>
@@ -270,6 +310,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
             document.getElementById(name).classList.add('active');
             if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
+            else if (name === 'tasks') { loadTasks(); }
             else if (name === 'config') loadConfig();
         }
         
@@ -368,6 +409,58 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             xhr.send(JSON.stringify({ action: action }));
         }
         
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+        
+        function loadTasks() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/tasks', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        var tbody = document.getElementById('tasksList');
+                        if (!data.tasks || data.tasks.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>';
+                            return;
+                        }
+                        var html = '';
+                        data.tasks.forEach(function(task) {
+                            var statusClass = task.status === '下载中' ? 'downloading' : 
+                                             task.status === '已完成' ? 'completed' : 
+                                             task.status === '已取消' ? 'cancelled' : 'failed';
+                            html += '<tr>';
+                            html += '<td title="' + task.filename + '">' + (task.filename.length > 30 ? task.filename.substring(0, 30) + '...' : task.filename) + '</td>';
+                            html += '<td>' + formatSize(task.downloaded) + '</td>';
+                            html += '<td>' + formatSize(task.total_size) + '</td>';
+                            html += '<td><div class="task-progress"><div class="task-progress-fill" style="width: ' + task.progress + '%"></div></div>' + task.progress.toFixed(1) + '%</td>';
+                            html += '<td><span class="task-status ' + statusClass + '">' + task.status + '</span></td>';
+                            html += '</tr>';
+                        });
+                        tbody.innerHTML = html;
+                    } catch(e) { console.error(e); }
+                }
+            };
+            xhr.send();
+        }
+        
+        function clearCompletedTasks() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/tasks/clear', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    loadTasks();
+                }
+            };
+            xhr.send(JSON.stringify({ type: 'completed' }));
+        }
+        
         updateStatus();
         setInterval(updateStatus, 1000);
     </script>
@@ -427,6 +520,48 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
         except Exception:
             pass
+    
+    def clear_tasks(self):
+        """清空已完成/已取消/失败的任务"""
+        global download_tasks
+        try:
+            # 读取请求体
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode('utf-8'))
+                clear_type = data.get('type', 'completed')
+            else:
+                clear_type = 'completed'
+            
+            # 清空已完成的任务
+            to_remove = []
+            for filename, task in download_tasks.items():
+                if clear_type == 'completed' and task.get('status') in ['已完成', '已取消', '失败']:
+                    to_remove.append(filename)
+                elif clear_type == 'all':
+                    to_remove.append(filename)
+            
+            for filename in to_remove:
+                del download_tasks[filename]
+            
+            result = {"success": True, "cleared": len(to_remove)}
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            result = {"success": False, "error": str(e)}
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
     
     def send_config(self):
         global config_path
@@ -509,7 +644,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.6.1")
+        self.root.title("SaveAny-Bot Monitor v2.7")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
         self.root.minsize(650, 600)
@@ -939,6 +1074,15 @@ enable = true
 base_path = "Z:/sp/uuu"""
         info_label = ttk.Label(info_frame, text=info_text, font=("Consolas", 9), justify=tk.LEFT)
         info_label.pack(fill=tk.X)
+        
+        # 启动设置
+        startup_frame = ttk.LabelFrame(parent, text="启动设置", padding="10")
+        startup_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.auto_load_config_var = tk.BooleanVar(value=self.load_auto_load_setting())
+        ttk.Checkbutton(startup_frame, text="启动时自动从配置文件加载设置", 
+                       variable=self.auto_load_config_var,
+                       command=self.save_auto_load_setting).pack(side=tk.LEFT)
         
         # 状态提示
         self.settings_status = ttk.Label(parent, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
@@ -1385,6 +1529,8 @@ base_path = "Z:/sp/uuu"""
             self.config_path_label.config(text=cfg_path, foreground="black")
             if os.path.exists(cfg_path):
                 self.load_config()
+                # 如果启用了自动加载，则加载设置
+                self.auto_load_settings_on_startup()
     
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
@@ -2012,6 +2158,134 @@ base_path = "{base_path}"\n'''
             messagebox.showinfo("成功", "存储设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
         except Exception as e:
             messagebox.showerror("错误", f"保存失败: {str(e)}")
+    
+    def get_settings_file_path(self):
+        """获取设置文件路径"""
+        import os
+        # 使用程序所在目录存储设置
+        if getattr(sys, 'frozen', False):
+            # 打包后的 exe
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            # 开发环境
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(app_dir, 'monitor_settings.ini')
+    
+    def load_auto_load_setting(self):
+        """加载自动加载设置"""
+        try:
+            settings_file = self.get_settings_file_path()
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.startswith('auto_load_config='):
+                            return line.strip().split('=')[1].lower() == 'true'
+        except Exception:
+            pass
+        return False
+    
+    def save_auto_load_setting(self):
+        """保存自动加载设置"""
+        try:
+            settings_file = self.get_settings_file_path()
+            auto_load = self.auto_load_config_var.get()
+            
+            # 读取现有设置
+            settings = {}
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            settings[key] = value
+            
+            settings['auto_load_config'] = 'true' if auto_load else 'false'
+            
+            # 保存设置
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                for key, value in settings.items():
+                    f.write(f'{key}={value}\n')
+            
+            status_text = "已启用启动时自动加载" if auto_load else "已禁用启动时自动加载"
+            self.settings_status.config(text=status_text, foreground="green")
+        except Exception as e:
+            self.settings_status.config(text=f"保存设置失败: {str(e)}", foreground="red")
+    
+    def auto_load_settings_on_startup(self):
+        """启动时自动加载设置"""
+        global config_path
+        if not self.load_auto_load_setting():
+            return
+        
+        # 检查是否有配置文件路径
+        if not config_path or not os.path.exists(config_path):
+            return
+        
+        try:
+            # 静默加载代理设置
+            self.load_proxy_from_config_silent()
+            # 静默加载存储设置
+            self.load_storage_from_config_silent()
+            self.log("已自动加载配置文件设置")
+        except Exception as e:
+            self.log(f"自动加载设置失败: {str(e)}")
+    
+    def load_proxy_from_config_silent(self):
+        """静默从配置文件加载代理设置"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+            if enable_match:
+                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
+            
+            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
+            if url_match:
+                self.proxy_url_entry.delete(0, tk.END)
+                self.proxy_url_entry.insert(0, url_match.group(1))
+        except Exception:
+            pass
+    
+    def load_storage_from_config_silent(self):
+        """静默从配置文件加载存储设置"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\[\[|$)', content)
+            if storage_match:
+                storage_content = storage_match.group(1)
+                
+                name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', storage_content)
+                if name_match:
+                    self.storage_name_entry.delete(0, tk.END)
+                    self.storage_name_entry.insert(0, name_match.group(1))
+                
+                type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', storage_content)
+                if type_match:
+                    self.storage_type_var.set(type_match.group(1))
+                
+                enable_match = re.search(r'enable\s*=\s*(true|false)', storage_content, re.IGNORECASE)
+                if enable_match:
+                    self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
+                
+                path_match = re.search(r'base_path\s*=\s*["\']([^"\']+)["\']', storage_content)
+                if path_match:
+                    self.storage_path_entry.delete(0, tk.END)
+                    self.storage_path_entry.insert(0, path_match.group(1))
+        except Exception:
+            pass
     
     def on_closing(self):
         self.running = False
