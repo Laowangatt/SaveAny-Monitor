@@ -3,6 +3,8 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -24,6 +26,12 @@ jobs:
 
     - name: Build EXE
       run: |
+        pyinstaller --onefile --windowed --name "SaveAny-Monitor" --icon=icon.ico saveany_monitor.py
+      continue-on-error: true
+
+    - name: Build EXE (without icon)
+      if: failure()
+      run: |
         pyinstaller --onefile --windowed --name "SaveAny-Monitor" saveany_monitor.py
 
     - name: Upload artifact
@@ -31,3 +39,12 @@ jobs:
       with:
         name: SaveAny-Monitor
         path: dist/SaveAny-Monitor.exe
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/SaveAny-Monitor.exe
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

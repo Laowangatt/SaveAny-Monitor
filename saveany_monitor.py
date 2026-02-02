@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.5
+SaveAny-Bot Monitor v2.6
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
-支持配置文件编辑、Web 网页查看和日志捕获
+支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
 """
 
@@ -47,6 +47,7 @@ monitor_data = {
 config_path = None
 control_callback = None
 recent_logs = deque(maxlen=500)  # 保存最近500行日志用于Web显示
+download_tasks = {}  # 当前下载任务列表 {task_id: {filename, downloaded, total, progress, status, start_time}}
 
 
 class StoppableHTTPServer(HTTPServer):
@@ -111,6 +112,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.send_config()
             elif parsed_path.path == '/api/logs':
                 self.send_logs()
+            elif parsed_path.path == '/api/tasks':
+                self.send_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -409,6 +412,22 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
     
+    def send_tasks(self):
+        """发送当前下载任务列表"""
+        global download_tasks
+        try:
+            tasks_list = list(download_tasks.values())
+            result = {"tasks": tasks_list, "count": len(tasks_list)}
+            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception:
+            pass
+    
     def send_config(self):
         global config_path
         result = {"success": False, "content": "", "error": ""}
@@ -490,7 +509,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.5")
+        self.root.title("SaveAny-Bot Monitor v2.6")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
         self.root.minsize(650, 600)
@@ -542,6 +561,11 @@ class SaveAnyMonitor:
         log_frame = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(log_frame, text=" 日志 ")
         self.create_log_tab(log_frame)
+        
+        # 下载任务页面
+        tasks_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(tasks_frame, text=" 下载任务 ")
+        self.create_tasks_tab(tasks_frame)
         
         # 配置编辑页面
         config_frame = ttk.Frame(self.notebook, padding="10")
@@ -724,6 +748,77 @@ class SaveAnyMonitor:
         self.console_log.pack(fill=tk.BOTH, expand=True)
         self.console_log.insert(tk.END, "等待 SaveAny-Bot 启动...\n提示: 请通过本监控程序的「启动进程」按钮启动 SaveAny-Bot 以捕获日志\n")
     
+    def create_tasks_tab(self, parent):
+        """创建下载任务列表标签页"""
+        # 顶部信息栏
+        info_frame = ttk.Frame(parent)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.tasks_count_label = ttk.Label(info_frame, text="当前任务: 0 个 (活跃: 0)", font=('', 10, 'bold'))
+        self.tasks_count_label.pack(side=tk.LEFT)
+        
+        # 按钮栏
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(btn_frame, text="刷新列表", command=self.refresh_tasks).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(btn_frame, text="清空已完成", command=self.clear_completed_tasks).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(btn_frame, text="清空全部", command=self.clear_all_tasks).pack(side=tk.LEFT)
+        
+        # 任务列表框架
+        tasks_list_frame = ttk.LabelFrame(parent, text="下载任务列表", padding="5")
+        tasks_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建 Treeview
+        columns = ('filename', 'downloaded', 'total', 'progress', 'status', 'start_time')
+        self.tasks_tree = ttk.Treeview(tasks_list_frame, columns=columns, show='headings', height=15)
+        
+        # 定义列标题
+        self.tasks_tree.heading('filename', text='文件名')
+        self.tasks_tree.heading('downloaded', text='已下载')
+        self.tasks_tree.heading('total', text='总大小')
+        self.tasks_tree.heading('progress', text='进度')
+        self.tasks_tree.heading('status', text='状态')
+        self.tasks_tree.heading('start_time', text='开始时间')
+        
+        # 定义列宽度
+        self.tasks_tree.column('filename', width=250, minwidth=150)
+        self.tasks_tree.column('downloaded', width=100, minwidth=80)
+        self.tasks_tree.column('total', width=100, minwidth=80)
+        self.tasks_tree.column('progress', width=80, minwidth=60)
+        self.tasks_tree.column('status', width=80, minwidth=60)
+        self.tasks_tree.column('start_time', width=150, minwidth=120)
+        
+        # 添加滚动条
+        scrollbar_y = ttk.Scrollbar(tasks_list_frame, orient=tk.VERTICAL, command=self.tasks_tree.yview)
+        scrollbar_x = ttk.Scrollbar(tasks_list_frame, orient=tk.HORIZONTAL, command=self.tasks_tree.xview)
+        self.tasks_tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        
+        # 布局
+        self.tasks_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 底部提示
+        tip_label = ttk.Label(parent, text="提示: 任务列表通过解析 SaveAny-Bot 日志自动更新，已完成的任务将在 30 秒后自动移除", foreground="gray")
+        tip_label.pack(fill=tk.X, pady=(10, 0))
+    
+    def refresh_tasks(self):
+        """刷新任务列表"""
+        self.update_tasks_ui()
+    
+    def clear_completed_tasks(self):
+        """清空已完成的任务"""
+        global download_tasks
+        download_tasks = {k: v for k, v in download_tasks.items() if v['status'] not in ['已完成']}
+        self.update_tasks_ui()
+    
+    def clear_all_tasks(self):
+        """清空所有任务"""
+        global download_tasks
+        if messagebox.askyesno("确认", "确定要清空所有任务记录吗？"):
+            download_tasks = {}
+            self.update_tasks_ui()
+    
     def create_config_tab(self, parent):
         info_label = ttk.Label(parent, text="编辑 SaveAny-Bot 的配置文件 (config.toml)，修改后点击保存按钮。", wraplength=650)
         info_label.pack(fill=tk.X, pady=(0, 10))
@@ -898,12 +993,15 @@ base_path = "Z:/sp/uuu"""
     
     def add_console_log(self, message):
         """添加控制台日志"""
-        global recent_logs
+        global recent_logs, download_tasks
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_line = f"[{timestamp}] {message}"
         
         # 添加到全局日志队列（用于Web显示）
         recent_logs.append(log_line)
+        
+        # 解析日志提取下载任务信息
+        self.parse_download_task(message)
         
         # 写入日志文件
         if self.log_file:
@@ -933,6 +1031,135 @@ base_path = "Z:/sp/uuu"""
         
         if self.running:
             self.root.after(100, self.process_log_queue)
+    
+    def parse_download_task(self, message):
+        """解析日志提取下载任务信息"""
+        global download_tasks
+        import re
+        
+        try:
+            # 解析任务开始: Processing task: d60bg6hcbfigvi5mp0ig
+            task_match = re.search(r'Processing task: (\w+)', message)
+            if task_match:
+                task_id = task_match.group(1)
+                if task_id not in download_tasks:
+                    download_tasks[task_id] = {
+                        'task_id': task_id,
+                        'filename': '',
+                        'downloaded': 0,
+                        'total': 0,
+                        'progress': 0,
+                        'status': '处理中',
+                        'start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                # 更新任务列表 UI
+                self.update_tasks_ui()
+                return
+            
+            # 解析文件开始下载: file[文件名]: Starting file download
+            start_match = re.search(r'file\[(.+?)\]: Starting file download', message)
+            if start_match:
+                filename = start_match.group(1)
+                # 查找最近的任务并更新文件名
+                for task_id in reversed(list(download_tasks.keys())):
+                    if not download_tasks[task_id]['filename']:
+                        download_tasks[task_id]['filename'] = filename
+                        download_tasks[task_id]['status'] = '下载中'
+                        break
+                # 更新任务列表 UI
+                self.update_tasks_ui()
+                return
+            
+            # 解析进度更新: Progress update: 文件名, 已下载/总大小
+            progress_match = re.search(r'Progress update: (.+?), (\d+)/(\d+)', message)
+            if progress_match:
+                filename = progress_match.group(1)
+                downloaded = int(progress_match.group(2))
+                total = int(progress_match.group(3))
+                progress = (downloaded / total * 100) if total > 0 else 0
+                
+                # 查找对应的任务并更新
+                for task_id, task in download_tasks.items():
+                    if task['filename'] == filename:
+                        download_tasks[task_id]['downloaded'] = downloaded
+                        download_tasks[task_id]['total'] = total
+                        download_tasks[task_id]['progress'] = round(progress, 1)
+                        download_tasks[task_id]['status'] = '下载中'
+                        break
+                # 更新任务列表 UI
+                self.update_tasks_ui()
+                return
+            
+            # 解析下载完成: file downloaded successfully 或 upload completed
+            if 'downloaded successfully' in message or 'upload completed' in message or 'completed' in message.lower():
+                # 尝试提取文件名
+                complete_match = re.search(r'file\[(.+?)\].*(?:downloaded successfully|completed)', message)
+                if complete_match:
+                    filename = complete_match.group(1)
+                    for task_id, task in list(download_tasks.items()):
+                        if task['filename'] == filename:
+                            download_tasks[task_id]['status'] = '已完成'
+                            download_tasks[task_id]['progress'] = 100
+                            # 30秒后移除已完成的任务
+                            self.root.after(30000, lambda tid=task_id: self.remove_completed_task(tid))
+                            break
+                # 更新任务列表 UI
+                self.update_tasks_ui()
+                return
+            
+            # 解析任务失败
+            if 'failed' in message.lower() or 'error' in message.lower():
+                error_match = re.search(r'file\[(.+?)\].*(?:failed|error)', message, re.IGNORECASE)
+                if error_match:
+                    filename = error_match.group(1)
+                    for task_id, task in download_tasks.items():
+                        if task['filename'] == filename:
+                            download_tasks[task_id]['status'] = '失败'
+                            break
+                # 更新任务列表 UI
+                self.update_tasks_ui()
+                return
+                
+        except Exception:
+            pass
+    
+    def remove_completed_task(self, task_id):
+        """移除已完成的任务"""
+        global download_tasks
+        if task_id in download_tasks and download_tasks[task_id]['status'] == '已完成':
+            del download_tasks[task_id]
+            self.update_tasks_ui()
+    
+    def update_tasks_ui(self):
+        """更新任务列表 UI"""
+        global download_tasks
+        try:
+            if hasattr(self, 'tasks_tree'):
+                # 清空现有项
+                for item in self.tasks_tree.get_children():
+                    self.tasks_tree.delete(item)
+                
+                # 添加任务
+                for task_id, task in download_tasks.items():
+                    downloaded_str = self.format_bytes(task['downloaded']) if task['downloaded'] else '-'
+                    total_str = self.format_bytes(task['total']) if task['total'] else '-'
+                    progress_str = f"{task['progress']:.1f}%" if task['progress'] else '0%'
+                    
+                    self.tasks_tree.insert('', 'end', values=(
+                        task['filename'] or task['task_id'],
+                        downloaded_str,
+                        total_str,
+                        progress_str,
+                        task['status'],
+                        task['start_time']
+                    ))
+                
+                # 更新任务计数
+                if hasattr(self, 'tasks_count_label'):
+                    active_count = sum(1 for t in download_tasks.values() if t['status'] in ['处理中', '下载中'])
+                    self.tasks_count_label.config(text=f"当前任务: {len(download_tasks)} 个 (活跃: {active_count})")
+        except Exception:
+            pass
     
     def clear_console_log(self):
         """清空控制台日志显示"""
