@@ -2142,7 +2142,31 @@ base_path = "{base_path}"\n'''
                 print(f"[自动查找] 找到 saveany-bot.exe: {path}")
                 return path
         
+        print("[自动查找] 开始递归搜索当前目录...")
+        found_path = self.search_saveany_bot_recursive(os.getcwd())
+        if found_path:
+            print(f"[自动查找] 在子目录中找到: {found_path}")
+            return found_path
+        
         print("[自动查找] 未找到 saveany-bot.exe")
+        return None
+    
+    def search_saveany_bot_recursive(self, directory, max_depth=3, current_depth=0):
+        """递归搜索 saveany-bot.exe"""
+        if current_depth >= max_depth:
+            return None
+        
+        try:
+            for item in os.listdir(directory):
+                item_path = os.path.join(directory, item)
+                if item.lower() == "saveany-bot.exe" and os.path.isfile(item_path):
+                    return item_path
+                if os.path.isdir(item_path) and not item.startswith('.'):
+                    result = self.search_saveany_bot_recursive(item_path, max_depth, current_depth + 1)
+                    if result:
+                        return result
+        except (PermissionError, OSError):
+            pass
         return None
     
     def save_program_path(self):
