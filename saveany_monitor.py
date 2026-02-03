@@ -2098,19 +2098,41 @@ base_path = "{base_path}"\n'''
         else:
             # 开发环境
             app_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(app_dir, 'monitor_settings.ini')
+        settings_path = os.path.join(app_dir, 'monitor_settings.ini')
+        # 调试：打印设置文件路径
+        print(f"[设置文件] 路径: {settings_path}")
+        return settings_path
     
     def load_auto_load_setting(self):
         """加载自动加载设置"""
         try:
             settings_file = self.get_settings_file_path()
+            print(f"[设置文件] 检查是否存在: {os.path.exists(settings_file)}")
+            
             if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    print(f"[设置文件] 内容:\n{content}")
+                    
+                    for line in f:
+                        if line.startswith('auto_load_config='):
+                            value = line.strip().split('=')[1].lower() == 'true'
+                            print(f"[设置文件] 加载 auto_load_config = {value}")
+                            return value
+                    
+                    # 如果没有找到，需要重新读取文件
                 with open(settings_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.startswith('auto_load_config='):
-                            return line.strip().split('=')[1].lower() == 'true'
-        except Exception:
-            pass
+                            value = line.strip().split('=')[1].lower() == 'true'
+                            print(f"[设置文件] 加载 auto_load_config = {value}")
+                            return value
+                
+                print("[设置文件] 未找到 auto_load_config 配置")
+            else:
+                print("[设置文件] 设置文件不存在")
+        except Exception as e:
+            print(f"[设置文件] 加载错误: {str(e)}")
         return False
     
     def save_auto_load_setting(self):
@@ -2118,6 +2140,8 @@ base_path = "{base_path}"\n'''
         try:
             settings_file = self.get_settings_file_path()
             auto_load = self.auto_load_config_var.get()
+            
+            print(f"[设置文件] 保存 auto_load_config = {auto_load}")
             
             # 读取现有设置
             settings = {}
@@ -2135,10 +2159,16 @@ base_path = "{base_path}"\n'''
                 for key, value in settings.items():
                     f.write(f'{key}={value}\n')
             
-            status_text = "已启用启动时自动加载" if auto_load else "已禁用启动时自动加载"
+            print(f"[设置文件] 保存成功: {settings_file}")
+            
+            status_text = "✅ 已启用启动时自动加载" if auto_load else "❌ 已禁用启动时自动加载"
             self.settings_status.config(text=status_text, foreground="green")
+            self.log(status_text)
         except Exception as e:
-            self.settings_status.config(text=f"保存设置失败: {str(e)}", foreground="red")
+            error_msg = f"保存设置失败: {str(e)}"
+            self.settings_status.config(text=error_msg, foreground="red")
+            print(f"[设置文件] {error_msg}")
+            self.log(error_msg)
     
     def auto_load_settings_on_startup(self):
         """启动时自动加载设置"""
