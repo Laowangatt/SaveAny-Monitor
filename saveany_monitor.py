@@ -612,6 +612,7 @@ class MonitorApp(tk.Tk):
 
     def create_telegram_settings(self, parent):
         """创建 Telegram 设置界面"""
+        parent.columnconfigure(1, weight=1)
         # API Token
         ttk.Label(parent, text="Bot Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.token_entry = ttk.Entry(parent, width=50)
@@ -641,6 +642,7 @@ class MonitorApp(tk.Tk):
 
     def create_storage_settings(self, parent):
         """创建存储设置界面"""
+        parent.columnconfigure(1, weight=1)
         # 仅支持第一个 [[storages]] 的编辑
         ttk.Label(parent, text="注意: 仅支持编辑第一个存储配置", foreground="blue").grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
 
@@ -822,26 +824,26 @@ class MonitorApp(tk.Tk):
             proxy_url = self.proxy_url_entry.get().strip()
 
             # 更新 token
-            content = re.sub(r'(token\s*=\s*)["\'][^"\']*["\']', f'\1"{token}"', content)
+            content = re.sub(r'(token\s*=\s*)["\'][^"\']*["\']', f'\\1"{token}"', content)
             # 更新 admin_users
             admins_formatted = ', '.join([f'"{user.strip()}"' for user in admins.split(',') if user.strip()])
-            content = re.sub(r'(admin_users\s*=\s*)\[[^\]]*\]', f'\1[{admins_formatted}]', content)
+            content = re.sub(r'(admin_users\s*=\s*)\[[^\]]*\]', f'\\1[{admins_formatted}]', content)
             # 更新 allowed_users
             allowed_formatted = ', '.join([f'"{user.strip()}"' for user in allowed_users.split(',') if user.strip()])
-            content = re.sub(r'(allowed_users\s*=\s*)\[[^\]]*\]', f'\1[{allowed_formatted}]', content)
+            content = re.sub(r'(allowed_users\s*=\s*)\[[^\]]*\]', f'\\1[{allowed_formatted}]', content)
 
             # 更新 proxy
             if re.search(r'\[telegram\.proxy\]', content):
                 # 更新现有配置
                 content = re.sub(
                     r'(\[telegram\.proxy\][\s\S]*?enable\s*=\s*)(true|false)',
-                    f'\1{proxy_enable}',
+                    f'\\1{proxy_enable}',
                     content,
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
                     r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\'][^"\']*["\']',
-                    f'\1"{proxy_url}"',
+                    f'\\1"{proxy_url}"',
                     content
                 )
             else:
@@ -908,36 +910,28 @@ url = "{proxy_url}"
                     content,
                     count=1
                 )
-                # 添加或更新 concurrent_tasks
-                if re.search(r'concurrent_tasks\s*=', content):
-                    content = re.sub(
-                        r'(concurrent_tasks\s*=\s*)\d+',
-                        lambda m: f'{m.group(1)}{concurrent_tasks}',
-                        content,
-                        count=1
-                    )
-                else:
-                    content = re.sub(
-                        r'(base_path\s*=\s*["\'][^"\']*["\'])',
-                        lambda m: f'{m.group(1)}\nconcurrent_tasks = {concurrent_tasks}',
-                        content,
-                        count=1
-                    )
-                # 添加或更新 cache_path
-                if re.search(r'cache_path\s*=', content):
-                    content = re.sub(
-                        r'(cache_path\s*=\s*)["\']([^"\']*)["\']',
-                        lambda m: f'{m.group(1)}"{cache_path}"',
-                        content,
-                        count=1
-                    )
-                else:
-                    content = re.sub(
-                        r'(concurrent_tasks\s*=\s*\d+)',
-                        lambda m: f'{m.group(1)}\ncache_path = "{cache_path}"',
-                        content,
-                        count=1
-                    )
+                # 提取第一个 storage 块进行内部更新
+                storage_pattern = r'(\[\[storages\]\][\s\S]*?)(?=\n\[\[storages\]\]|\Z)'
+                def update_storage_block(match):
+                    block = match.group(1)
+                    # 更新或添加 concurrent_tasks
+                    if re.search(r'concurrent_tasks\s*=', block):
+                        block = re.sub(r'(concurrent_tasks\s*=\s*)\d+', f'\\1{concurrent_tasks}', block, count=1)
+                    else:
+                        block = re.sub(r'(base_path\s*=\s*["\'][^"\']*["\'])', f'\\1\nconcurrent_tasks = {concurrent_tasks}', block, count=1)
+                    
+                    # 更新或添加 cache_path
+                    if re.search(r'cache_path\s*=', block):
+                        block = re.sub(r'(cache_path\s*=\s*)["\']([^"\']*)["\']', f'\\1"{cache_path}"', block, count=1)
+                    else:
+                        # 尝试在 concurrent_tasks 后添加，如果不存在则在 base_path 后添加
+                        if 'concurrent_tasks' in block:
+                            block = re.sub(r'(concurrent_tasks\s*=\s*\d+)', f'\\1\ncache_path = "{cache_path}"', block, count=1)
+                        else:
+                            block = re.sub(r'(base_path\s*=\s*["\'][^"\']*["\'])', f'\\1\ncache_path = "{cache_path}"', block, count=1)
+                    return block
+
+                content = re.sub(storage_pattern, update_storage_block, content, count=1)
             else:
                 # 添加新配置
                 storage_config = f'''
