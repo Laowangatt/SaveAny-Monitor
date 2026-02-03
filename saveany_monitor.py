@@ -176,7 +176,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .tab { padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; border-radius: 8px; color: #fff; cursor: pointer; }
         .tab.active { background: #2196f3; }
         .tab-content { display: none; }
-        .tab-content.active { display: block; }        .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
+        .tab-content.active { display: block; }
+        .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
         .task-progress-fill { height: 100%; background: linear-gradient(90deg, #00c853, #69f0ae); border-radius: 4px; transition: width 0.3s ease; }
         .task-status { padding: 4px 10px; border-radius: 12px; font-size: 0.85em; }
         .task-status.downloading { background: #2196f3; }
@@ -191,7 +192,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         <h1>SaveAny-Bot Monitor <span id="statusBadge" class="status-badge status-stopped">未运行</span></h1>
         
         <div class="tabs">
-            <button class="tab active" onclick="showTab('monitor')">监控</button>            <button class="tab" onclick="showTab('logs')">日志</button>
+            <button class="tab active" onclick="showTab('monitor')">监控</button>
+            <button class="tab" onclick="showTab('logs')">日志</button>
             <button class="tab" onclick="showTab('config')">配置</button>
         </div>
         
@@ -226,1829 +228,636 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             <div class="card">
                 <h2>进程控制</h2>
                 <div class="btn-group">
-                    <button class="btn btn-success" onclick="controlProcess('start')">启动进程</button>
-                    <button class="btn btn-danger" onclick="controlProcess('stop')">停止进程</button>
-                    <button class="btn btn-warning" onclick="controlProcess('restart')">重启进程</button>
+                    <button class="btn btn-success" onclick="controlProcess('start')">启动</button>
+                    <button class="btn btn-danger" onclick="controlProcess('stop')">停止</button>
+                    <button class="btn btn-warning" onclick="controlProcess('restart')">重启</button>
                 </div>
             </div>
         </div>
-        
-        <div id="tasks" class="tab-content">
-            <div class="card">
-                <h2>下载任务列表</h2>
-                <div class="btn-group" style="margin-bottom: 15px;">
-                    <button class="btn btn-primary" onclick="loadTasks()">刷新列表</button>
-                    <button class="btn btn-danger" onclick="clearCompletedTasks()">清空已完成</button>
-                </div>
-                <div id="tasksContainer">
-                    <table class="tasks-table">
-                        <thead>
-                            <tr>
-                                <th>文件名</th>
-                                <th>已下载</th>
-                                <th>总大小</th>
-                                <th>进度</th>
-                                <th>状态</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tasksList">
-                            <tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
+
         <div id="logs" class="tab-content">
             <div class="card">
                 <h2>实时日志</h2>
-                <div class="btn-group" style="margin-bottom: 15px;">
-                    <button class="btn btn-primary" onclick="loadLogs()">刷新日志</button>
-                    <button class="btn btn-danger" onclick="clearLogs()">清空显示</button>
-                    <label style="display: flex; align-items: center; color: #fff;">
-                        <input type="checkbox" id="autoScroll" checked style="margin-right: 5px;"> 自动滚动
-                    </label>
-                </div>
-                <div id="logViewer" class="log-viewer">等待日志...</div>
+                <div id="logViewer" class="log-viewer"></div>
             </div>
         </div>
-        
+
         <div id="config" class="tab-content">
             <div class="card">
-                <h2>配置文件编辑 (config.toml)</h2>
-                <textarea id="configEditor" class="config-editor" placeholder="加载配置文件中..."></textarea>
+                <h2>配置文件 (config.toml)</h2>
+                <textarea id="configEditor" class="config-editor"></textarea>
                 <div class="btn-group">
-                    <button class="btn btn-primary" onclick="loadConfig()">重新加载</button>
-                    <button class="btn btn-success" onclick="saveConfig()">保存配置</button>
+                    <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
                 </div>
             </div>
         </div>
-        
-        <p class="update-time">最后更新: <span id="updateTime">-</span></p>
+        <p class="update-time">最后更新: <span id="lastUpdate"></span></p>
     </div>
-    
+
     <script>
-        var logTimer = null;
-        
-        function showTab(name) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
-            document.getElementById(name).classList.add('active');
-            if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
-            else if (name === 'config') loadConfig();
+        let lastTotalDownload = 0;
+        let lastTotalUpload = 0;
+        let lastSysTotalDownload = 0;
+        let lastSysTotalUpload = 0;
+        let lastTime = Date.now();
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(tabName).style.display = 'block';
+            if (tabName === 'config') fetchConfig();
+            if (tabName === 'logs') fetchLogs();
         }
-        
-        function updateStatus() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/status', true);
-            xhr.timeout = 5000;
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText);
-                        document.getElementById('status').textContent = data.status;
-                        document.getElementById('pid').textContent = data.pid;
-                        document.getElementById('uptime').textContent = data.uptime;
-                        document.getElementById('cpu').textContent = data.cpu + '%';
-                        document.getElementById('memory').textContent = data.memory;
-                        document.getElementById('threads').textContent = data.threads;
-                        document.getElementById('handles').textContent = data.handles;
-                        document.getElementById('downloadSpeed').textContent = data.download_speed;
-                        document.getElementById('uploadSpeed').textContent = data.upload_speed;
-                        document.getElementById('totalDownload').textContent = data.total_download;
-                        document.getElementById('totalUpload').textContent = data.total_upload;
-                        document.getElementById('sysDownload').textContent = data.sys_download;
-                        document.getElementById('sysUpload').textContent = data.sys_upload;
-                        document.getElementById('updateTime').textContent = data.last_update;
-                        var cpuBar = document.getElementById('cpuBar');
-                        cpuBar.style.width = Math.min(data.cpu, 100) + '%';
-                        cpuBar.className = 'progress-fill' + (data.cpu > 80 ? ' danger' : data.cpu > 50 ? ' warning' : '');
-                        var memBar = document.getElementById('memBar');
-                        memBar.style.width = Math.min(data.memory_percent, 100) + '%';
-                        memBar.className = 'progress-fill' + (data.memory_percent > 80 ? ' danger' : data.memory_percent > 50 ? ' warning' : '');
-                        var badge = document.getElementById('statusBadge');
-                        if (data.status.indexOf('运行中') >= 0) { badge.textContent = '运行中'; badge.className = 'status-badge status-running'; }
-                        else { badge.textContent = '未运行'; badge.className = 'status-badge status-stopped'; }
-                    } catch(e) {}
-                }
-            };
-            xhr.send();
+
+        function updateStatus(data) {
+            const now = Date.now();
+            const timeDiff = (now - lastTime) / 1000; // in seconds
+            lastTime = now;
+
+            document.getElementById('status').textContent = data.status;
+            document.getElementById('pid').textContent = data.pid;
+            document.getElementById('uptime').textContent = data.uptime;
+            document.getElementById('cpu').textContent = `${data.cpu.toFixed(1)}%`;
+            document.getElementById('memory').textContent = data.memory;
+            document.getElementById('threads').textContent = data.threads;
+            document.getElementById('handles').textContent = data.handles;
+            document.getElementById('totalDownload').textContent = data.total_download;
+            document.getElementById('totalUpload').textContent = data.total_upload;
+            document.getElementById('sysDownload').textContent = data.sys_download;
+            document.getElementById('sysUpload').textContent = data.sys_upload;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+
+            const statusBadge = document.getElementById('statusBadge');
+            statusBadge.textContent = data.status;
+            if (data.status === "运行中") {
+                statusBadge.className = 'status-badge status-running';
+            } else {
+                statusBadge.className = 'status-badge status-stopped';
+            }
+
+            const cpuBar = document.getElementById('cpuBar');
+            cpuBar.style.width = `${data.cpu}%`;
+            cpuBar.className = 'progress-fill';
+            if (data.cpu > 80) cpuBar.classList.add('danger');
+            else if (data.cpu > 50) cpuBar.classList.add('warning');
+
+            const memBar = document.getElementById('memBar');
+            memBar.style.width = `${data.memory_percent}%`;
+            memBar.className = 'progress-fill';
+            if (data.memory_percent > 80) memBar.classList.add('danger');
+            else if (data.memory_percent > 50) memBar.classList.add('warning');
         }
-        
-        function loadLogs() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/logs', true);
-            xhr.timeout = 5000;
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText);
-                        var viewer = document.getElementById('logViewer');
-                        viewer.textContent = data.logs || '暂无日志';
-                        if (document.getElementById('autoScroll').checked) viewer.scrollTop = viewer.scrollHeight;
-                    } catch(e) {}
-                }
-            };
-            xhr.send();
+
+        function fetchStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => updateStatus(data))
+                .catch(error => console.error('Error fetching status:', error));
         }
-        
-        function clearLogs() { document.getElementById('logViewer').textContent = ''; }
-        
-        function loadConfig() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/config', true);
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText);
-                        document.getElementById('configEditor').value = data.success ? data.content : '# 无法加载: ' + data.error;
-                    } catch(e) {}
-                }
-            };
-            xhr.send();
+
+        function fetchConfig() {
+            fetch('/api/config')
+                .then(response => response.text())
+                .then(text => {
+                    document.getElementById('configEditor').value = text;
+                })
+                .catch(error => console.error('Error fetching config:', error));
         }
-        
+
         function saveConfig() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/config', true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try { var data = JSON.parse(xhr.responseText); alert(data.success ? '配置已保存！' : '保存失败: ' + data.error); } catch(e) {}
-                }
-            };
-            xhr.send(JSON.stringify({ content: document.getElementById('configEditor').value }));
+            const configContent = document.getElementById('configEditor').value;
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: configContent
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                if (data.status === 'success') fetchConfig();
+            })
+            .catch(error => console.error('Error saving config:', error));
         }
-        
+
+        function fetchLogs() {
+            fetch('/api/logs')
+                .then(response => response.text())
+                .then(text => {
+                    const logViewer = document.getElementById('logViewer');
+                    logViewer.textContent = text;
+                    logViewer.scrollTop = logViewer.scrollHeight;
+                })
+                .catch(error => console.error('Error fetching logs:', error));
+        }
+
         function controlProcess(action) {
-            if ((action === 'stop' || action === 'restart') && !confirm('确定要' + (action === 'stop' ? '停止' : '重启') + '进程吗？')) return;
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/control', true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try { var data = JSON.parse(xhr.responseText); alert(data.message); } catch(e) {}
-                }
-            };
-            xhr.send(JSON.stringify({ action: action }));
+            fetch('/api/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                fetchStatus();
+            })
+            .catch(error => console.error('Error controlling process:', error));
         }
-        
-        function formatSize(bytes) {
-            if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-        }
-                        var html = '';
-                        data.tasks.forEach(function(task) {
-                            var statusClass = task.status === '下载中' ? 'downloading' : 
-                                             task.status === '已完成' ? 'completed' : 
-                                             task.status === '已取消' ? 'cancelled' : 'failed';
-                            html += '<tr>';
-                            html += '<td title="' + task.filename + '">' + (task.filename.length > 30 ? task.filename.substring(0, 30) + '...' : task.filename) + '</td>';
-                            html += '<td>' + formatSize(task.downloaded || 0) + '</td>';
-                            html += '<td>' + formatSize(task.total || 0) + '</td>';
-                            html += '<td><div class="task-progress"><div class="task-progress-fill" style="width: ' + (task.progress || 0) + '%"></div></div>' + (task.progress || 0).toFixed(1) + '%</td>';
-                            html += '<td><span class="task-status ' + statusClass + '">' + task.status + '</span></td>';
-                            html += '</tr>';
-                        });
-                        tbody.innerHTML = html;
-                    } catch(e) { console.error(e); }
-                }
-            };
-            xhr.send();
-        }
-            };
-            xhr.send(JSON.stringify({ type: 'completed' }));
-        }
-        
-        updateStatus();
-        setInterval(updateStatus, 1000);
+
+        setInterval(fetchStatus, 2000);
+        setInterval(fetchLogs, 5000);
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStatus();
+        });
     </script>
 </body>
 </html>'''
-        try:
-            content = html.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
-    
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', len(html.encode('utf-8')))
+        self.end_headers()
+        self.wfile.write(html.encode('utf-8'))
+
     def send_json_status(self):
-        try:
-            content = json.dumps(monitor_data, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
-    
-    def send_logs(self):
-        """发送日志内容"""
-        global recent_logs
-        try:
-            logs_text = '\n'.join(recent_logs) if recent_logs else '暂无日志，请通过监控程序启动 SaveAny-Bot 以捕获日志'
-            result = {"logs": logs_text}
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
+        """发送 JSON 状态"""
+        global monitor_data
+        monitor_data['last_update'] = datetime.now().isoformat()
+        json_data = json.dumps(monitor_data)
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json_data.encode('utf-8'))
+
     def send_config(self):
+        """发送配置文件内容"""
         global config_path
-        result = {"success": False, "content": "", "error": ""}
-        try:
-            if config_path and os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    result["content"] = f.read()
-                    result["success"] = True
-            else:
-                result["error"] = "配置文件不存在"
-        except Exception as e:
-            result["error"] = str(e)
-        try:
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
-    
-    def save_config(self):
-        global config_path
-        result = {"success": False, "error": ""}
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                data = json.loads(post_data.decode('utf-8'))
-                if config_path:
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        f.write(data['content'])
-                    result["success"] = True
-                else:
-                    result["error"] = "配置文件路径未设置"
-        except Exception as e:
-            result["error"] = str(e)
-        try:
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
-    
-    def handle_control(self):
-        global control_callback
-        result = {"success": False, "message": ""}
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                data = json.loads(post_data.decode('utf-8'))
-                action = data.get('action', '')
-                if control_callback:
-                    result["message"] = control_callback(action)
-                    result["success"] = True
-                else:
-                    result["message"] = "控制功能未初始化"
-        except Exception as e:
-            result["message"] = str(e)
-        try:
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception:
-            pass
-
-class SaveAnyMonitor:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("SaveAny-Bot Monitor v2.7.1")
-        self.root.geometry("750x700")
-        self.root.resizable(True, True)
-        self.root.minsize(650, 600)
-        
-        self.target_process = "saveany-bot.exe"
-        self.target_path = ""
-        
-        self.process = None
-        self.managed_process = None  # 由监控程序启动的进程
-        self.running = True
-        self.update_interval = 1000
-        
-        self.net_history = deque(maxlen=60)
-        self.last_net_io = None
-        self.last_net_time = None
-        self.proc_last_io = None
-        self.proc_last_time = None
-        
-        self.web_server = None
-        self.web_thread = None
-        self.web_port = 8080
-        
-        # 日志相关
-        self.log_queue = queue.Queue()
-        self.log_file = None
-        self.log_file_path = None
-        self.capture_logs = True
-        
-        global config_path, control_callback, recent_logs
-        config_path = None
-        control_callback = self.handle_web_control
-        recent_logs = deque(maxlen=500)
-        
-        self.create_widgets()
-        self.start_monitoring()
-        self.process_log_queue()
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
-        # 启动时自动检测 saveany-bot 程序
-        self.root.after(500, self.auto_detect_program)
-    
-    def create_widgets(self):
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # 监控页面
-        monitor_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(monitor_frame, text=" 监控 ")
-        self.create_monitor_tab(monitor_frame)
-        
-        # 日志页面
-        log_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(log_frame, text=" 日志 ")
-        self.create_log_tab(log_frame)# 配置编辑页面
-        config_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(config_frame, text=" 配置编辑 ")
-        self.create_config_tab(config_frame)
-        
-        # 设置页面
-        settings_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(settings_frame, text=" 设置 ")
-        self.create_settings_tab(settings_frame)
-        
-        # Web 服务页面
-        web_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(web_frame, text=" Web 服务 ")
-        self.create_web_tab(web_frame)
-    
-    def create_monitor_tab(self, parent):
-        # 进程状态
-        status_frame = ttk.LabelFrame(parent, text="进程状态", padding="10")
-        status_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        status_row = ttk.Frame(status_frame)
-        status_row.pack(fill=tk.X)
-        
-        ttk.Label(status_row, text="运行状态:").pack(side=tk.LEFT)
-        self.status_label = ttk.Label(status_row, text="检测中...", font=("Microsoft YaHei", 10, "bold"))
-        self.status_label.pack(side=tk.LEFT, padx=(5, 20))
-        
-        ttk.Label(status_row, text="PID:").pack(side=tk.LEFT)
-        self.pid_label = ttk.Label(status_row, text="-")
-        self.pid_label.pack(side=tk.LEFT, padx=(5, 20))
-        
-        ttk.Label(status_row, text="运行时长:").pack(side=tk.LEFT)
-        self.uptime_label = ttk.Label(status_row, text="-")
-        self.uptime_label.pack(side=tk.LEFT)
-        
-        # 资源占用
-        resource_frame = ttk.LabelFrame(parent, text="资源占用", padding="10")
-        resource_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        cpu_row = ttk.Frame(resource_frame)
-        cpu_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(cpu_row, text="CPU 使用率:", width=12).pack(side=tk.LEFT)
-        self.cpu_progress = ttk.Progressbar(cpu_row, length=300, mode='determinate')
-        self.cpu_progress.pack(side=tk.LEFT, padx=(5, 10))
-        self.cpu_label = ttk.Label(cpu_row, text="0%", width=8)
-        self.cpu_label.pack(side=tk.LEFT)
-        
-        mem_row = ttk.Frame(resource_frame)
-        mem_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(mem_row, text="内存使用:", width=12).pack(side=tk.LEFT)
-        self.mem_progress = ttk.Progressbar(mem_row, length=300, mode='determinate')
-        self.mem_progress.pack(side=tk.LEFT, padx=(5, 10))
-        self.mem_label = ttk.Label(mem_row, text="0 MB", width=8)
-        self.mem_label.pack(side=tk.LEFT)
-        
-        thread_row = ttk.Frame(resource_frame)
-        thread_row.pack(fill=tk.X)
-        ttk.Label(thread_row, text="线程数:", width=12).pack(side=tk.LEFT)
-        self.thread_label = ttk.Label(thread_row, text="-")
-        self.thread_label.pack(side=tk.LEFT, padx=(5, 20))
-        ttk.Label(thread_row, text="句柄数:").pack(side=tk.LEFT)
-        self.handle_label = ttk.Label(thread_row, text="-")
-        self.handle_label.pack(side=tk.LEFT)
-        
-        # 网络流量
-        network_frame = ttk.LabelFrame(parent, text="网络流量 (进程)", padding="10")
-        network_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        download_row = ttk.Frame(network_frame)
-        download_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(download_row, text="下载速度:", width=12).pack(side=tk.LEFT)
-        self.download_label = ttk.Label(download_row, text="0 KB/s", font=("Microsoft YaHei", 10))
-        self.download_label.pack(side=tk.LEFT, padx=(5, 20))
-        ttk.Label(download_row, text="总下载:").pack(side=tk.LEFT)
-        self.total_download_label = ttk.Label(download_row, text="0 MB")
-        self.total_download_label.pack(side=tk.LEFT)
-        
-        upload_row = ttk.Frame(network_frame)
-        upload_row.pack(fill=tk.X)
-        ttk.Label(upload_row, text="上传速度:", width=12).pack(side=tk.LEFT)
-        self.upload_label = ttk.Label(upload_row, text="0 KB/s", font=("Microsoft YaHei", 10))
-        self.upload_label.pack(side=tk.LEFT, padx=(5, 20))
-        ttk.Label(upload_row, text="总上传:").pack(side=tk.LEFT)
-        self.total_upload_label = ttk.Label(upload_row, text="0 MB")
-        self.total_upload_label.pack(side=tk.LEFT)
-        
-        # 系统网络
-        sys_network_frame = ttk.LabelFrame(parent, text="系统网络流量 (全局)", padding="10")
-        sys_network_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        sys_net_row = ttk.Frame(sys_network_frame)
-        sys_net_row.pack(fill=tk.X)
-        ttk.Label(sys_net_row, text="系统下载:", width=12).pack(side=tk.LEFT)
-        self.sys_download_label = ttk.Label(sys_net_row, text="0 KB/s")
-        self.sys_download_label.pack(side=tk.LEFT, padx=(5, 20))
-        ttk.Label(sys_net_row, text="系统上传:").pack(side=tk.LEFT)
-        self.sys_upload_label = ttk.Label(sys_net_row, text="0 KB/s")
-        self.sys_upload_label.pack(side=tk.LEFT)
-        
-        # 控制按钮
-        control_frame = ttk.LabelFrame(parent, text="控制", padding="10")
-        control_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        btn_row = ttk.Frame(control_frame)
-        btn_row.pack(fill=tk.X)
-        
-        self.start_btn = ttk.Button(btn_row, text="启动进程", command=self.start_process)
-        self.start_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.stop_btn = ttk.Button(btn_row, text="停止进程", command=self.stop_process)
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.restart_btn = ttk.Button(btn_row, text="重启进程", command=self.restart_process)
-        self.restart_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.browse_btn = ttk.Button(btn_row, text="选择程序", command=self.browse_exe)
-        self.browse_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.open_folder_btn = ttk.Button(btn_row, text="打开目录", command=self.open_folder)
-        self.open_folder_btn.pack(side=tk.LEFT)
-        
-        path_row = ttk.Frame(control_frame)
-        path_row.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(path_row, text="程序路径:").pack(side=tk.LEFT)
-        self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500)
-        self.path_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 简要日志
-        log_frame = ttk.LabelFrame(parent, text="最近日志", padding="5")
-        log_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.log_text = tk.Text(log_frame, height=4, wrap=tk.WORD, font=("Consolas", 9))
-        self.log_text.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-        scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log_text.configure(yscrollcommand=scrollbar.set)
-        
-        self.log("SaveAny-Bot Monitor v2.5 已启动")
-        self.log(f"正在监控进程: {self.target_process}")
-    
-    def create_log_tab(self, parent):
-        """创建日志标签页"""
-        # 说明
-        info_frame = ttk.LabelFrame(parent, text="日志捕获", padding="10")
-        info_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        info_text = "通过本监控程序启动 SaveAny-Bot 可以捕获其控制台输出并保存到日志文件。\n日志文件保存在 SaveAny-Bot 同目录下的 logs 文件夹中。"
-        ttk.Label(info_frame, text=info_text, wraplength=680).pack(fill=tk.X)
-        
-        # 日志设置
-        settings_frame = ttk.Frame(parent)
-        settings_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.capture_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(settings_frame, text="启用日志捕获", variable=self.capture_var).pack(side=tk.LEFT)
-        
-        ttk.Label(settings_frame, text="  日志文件:").pack(side=tk.LEFT, padx=(20, 0))
-        self.log_path_label = ttk.Label(settings_frame, text="未启动", foreground="gray")
-        self.log_path_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 按钮
-        btn_frame = ttk.Frame(parent)
-        btn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Button(btn_frame, text="清空显示", command=self.clear_console_log).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(btn_frame, text="打开日志文件夹", command=self.open_log_folder).pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.auto_scroll_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(btn_frame, text="自动滚动", variable=self.auto_scroll_var).pack(side=tk.LEFT)
-        
-        # 日志显示区域
-        log_display_frame = ttk.LabelFrame(parent, text="SaveAny-Bot 控制台输出", padding="5")
-        log_display_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.console_log = scrolledtext.ScrolledText(
-            log_display_frame,
-            wrap=tk.WORD,
-            font=("Consolas", 9),
-            bg='#1e1e1e',
-            fg='#d4d4d4',
-            insertbackground='white'
-        )
-        self.console_log.pack(fill=tk.BOTH, expand=True)
-        self.console_log.insert(tk.END, "等待 SaveAny-Bot 启动...\n提示: 请通过本监控程序的「启动进程」按钮启动 SaveAny-Bot 以捕获日志\n")
-    def create_config_tab(self, parent):
-        info_label = ttk.Label(parent, text="编辑 SaveAny-Bot 的配置文件 (config.toml)，修改后点击保存按钮。", wraplength=650)
-        info_label.pack(fill=tk.X, pady=(0, 10))
-        
-        btn_frame = ttk.Frame(parent)
-        btn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.load_config_btn = ttk.Button(btn_frame, text="加载配置", command=self.load_config)
-        self.load_config_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.save_config_btn = ttk.Button(btn_frame, text="保存配置", command=self.save_config)
-        self.save_config_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.reload_config_btn = ttk.Button(btn_frame, text="重新加载", command=self.reload_config)
-        self.reload_config_btn.pack(side=tk.LEFT)
-        
-        path_frame = ttk.Frame(parent)
-        path_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(path_frame, text="配置文件:").pack(side=tk.LEFT)
-        self.config_path_label = ttk.Label(path_frame, text="未加载", foreground="gray")
-        self.config_path_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        editor_frame = ttk.Frame(parent)
-        editor_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.config_editor = scrolledtext.ScrolledText(editor_frame, wrap=tk.NONE, font=("Consolas", 10), undo=True)
-        self.config_editor.pack(fill=tk.BOTH, expand=True)
-        
-        h_scrollbar = ttk.Scrollbar(editor_frame, orient=tk.HORIZONTAL, command=self.config_editor.xview)
-        h_scrollbar.pack(fill=tk.X)
-        self.config_editor.configure(xscrollcommand=h_scrollbar.set)
-        
-        self.config_status = ttk.Label(parent, text="提示: 请先选择 SaveAny-Bot 程序路径以加载配置文件", foreground="blue")
-        self.config_status.pack(fill=tk.X, pady=(10, 0))
-    
-    def create_settings_tab(self, parent):
-        """创建设置标签页 - 代理和存储设置"""
-        # 创建滚动容器
-        canvas = tk.Canvas(parent, bg="white", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # 鼠标滚轮支持
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Telegram Token 设置
-        token_frame = ttk.LabelFrame(scrollable_frame, text="Telegram 配置 [telegram]", padding="10")
-        token_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Token 输入
-        token_row = ttk.Frame(token_frame)
-        token_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(token_row, text="Bot Token:", width=10).pack(side=tk.LEFT)
-        self.token_entry = ttk.Entry(token_row, width=60, show="*")
-        self.token_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        ttk.Button(token_row, text="显示", command=self.toggle_token_visibility).pack(side=tk.LEFT, padx=(5, 0))
-        
-        # Token 说明
-        token_info_row = ttk.Frame(token_frame)
-        token_info_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(token_info_row, text="从 @BotFather 获取 Bot Token", foreground="gray", font=("Consolas", 9)).pack(side=tk.LEFT)
-        
-        # Token 按钮
-        token_btn_row = ttk.Frame(token_frame)
-        token_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(token_btn_row, text="从配置加载", command=self.load_token_from_config).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(token_btn_row, text="保存到配置", command=self.save_token_to_config).pack(side=tk.LEFT)
-        
-        # 用户设置
-        users_frame = ttk.LabelFrame(scrollable_frame, text="用户配置 [[users]]", padding="10")
-        users_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # 用户 ID
-        user_id_row = ttk.Frame(users_frame)
-        user_id_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(user_id_row, text="用户 ID:", width=10).pack(side=tk.LEFT)
-        self.user_id_entry = ttk.Entry(user_id_row, width=30)
-        self.user_id_entry.insert(0, "")
-        self.user_id_entry.pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Label(user_id_row, text="(Telegram 账号 ID)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 黑名单模式
-        self.user_blacklist_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(users_frame, text="启用黑名单模式", variable=self.user_blacklist_var).pack(anchor=tk.W, pady=(0, 5))
-        
-        # 存储端列表
-        storage_list_row = ttk.Frame(users_frame)
-        storage_list_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(storage_list_row, text="存储端:", width=10).pack(side=tk.LEFT)
-        self.user_storages_entry = ttk.Entry(storage_list_row, width=50)
-        self.user_storages_entry.insert(0, "本地磁盘")
-        self.user_storages_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        ttk.Label(storage_list_row, text="(多个用逗号分隔)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 用户按钮
-        user_btn_row = ttk.Frame(users_frame)
-        user_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(user_btn_row, text="从配置加载", command=self.load_users_from_config).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(user_btn_row, text="保存到配置", command=self.save_users_to_config).pack(side=tk.LEFT)
-        
-        # 代理设置
-        proxy_frame = ttk.LabelFrame(scrollable_frame, text="Telegram 代理设置 [telegram.proxy]", padding="10")
-        proxy_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # 代理启用
-        proxy_enable_row = ttk.Frame(proxy_frame)
-        proxy_enable_row.pack(fill=tk.X, pady=(0, 5))
-        self.proxy_enable_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(proxy_enable_row, text="启用代理", variable=self.proxy_enable_var).pack(side=tk.LEFT)
-        
-        # 代理状态显示
-        ttk.Label(proxy_enable_row, text="状态:").pack(side=tk.LEFT, padx=(20, 5))
-        self.proxy_status_label = ttk.Label(proxy_enable_row, text="未测试", foreground="gray")
-        self.proxy_status_label.pack(side=tk.LEFT)
-        
-        # 代理 URL
-        proxy_url_row = ttk.Frame(proxy_frame)
-        proxy_url_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(proxy_url_row, text="代理地址:", width=10).pack(side=tk.LEFT)
-        self.proxy_url_entry = ttk.Entry(proxy_url_row, width=50)
-        self.proxy_url_entry.insert(0, "socks5://127.0.0.1:7890")
-        self.proxy_url_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        
-        # 代理按钮
-        proxy_btn_row = ttk.Frame(proxy_frame)
-        proxy_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(proxy_btn_row, text="测试连接", command=self.test_proxy_connection).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_row, text="从配置加载", command=self.load_proxy_from_config).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(proxy_btn_row, text="保存到配置", command=self.save_proxy_to_config).pack(side=tk.LEFT)
-        
-        # 存储设置
-        storage_frame = ttk.LabelFrame(scrollable_frame, text="存储设置 [[storages]]", padding="10")
-        storage_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # 存储名称
-        storage_name_row = ttk.Frame(storage_frame)
-        storage_name_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(storage_name_row, text="存储名称:", width=10).pack(side=tk.LEFT)
-        self.storage_name_entry = ttk.Entry(storage_name_row, width=30)
-        self.storage_name_entry.insert(0, "本地磁盘")
-        self.storage_name_entry.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 存储类型
-        ttk.Label(storage_name_row, text="类型:").pack(side=tk.LEFT, padx=(20, 5))
-        self.storage_type_var = tk.StringVar(value="local")
-        storage_type_combo = ttk.Combobox(storage_name_row, textvariable=self.storage_type_var, 
-                                          values=["local", "alist", "webdav", "s3", "telegram"], width=10, state="readonly")
-        storage_type_combo.pack(side=tk.LEFT)
-        
-        # 存储启用
-        self.storage_enable_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(storage_name_row, text="启用", variable=self.storage_enable_var).pack(side=tk.LEFT, padx=(20, 0))
-        
-        # 存储路径
-        storage_path_row = ttk.Frame(storage_frame)
-        storage_path_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(storage_path_row, text="保存路径:", width=10).pack(side=tk.LEFT)
-        self.storage_path_entry = ttk.Entry(storage_path_row, width=50)
-        self.storage_path_entry.insert(0, "./downloads")
-        self.storage_path_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        ttk.Button(storage_path_row, text="浏览...", command=self.browse_storage_path).pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 同时处理任务数量
-        concurrent_row = ttk.Frame(storage_frame)
-        concurrent_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(concurrent_row, text="同时任务数:", width=10).pack(side=tk.LEFT)
-        self.concurrent_tasks_entry = ttk.Entry(concurrent_row, width=10)
-        self.concurrent_tasks_entry.insert(0, "3")
-        self.concurrent_tasks_entry.pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Label(concurrent_row, text="(建议值: 1-10)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 下载缓存设置位置
-        cache_row = ttk.Frame(storage_frame)
-        cache_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(cache_row, text="缓存路径:", width=10).pack(side=tk.LEFT)
-        self.cache_path_entry = ttk.Entry(cache_row, width=50)
-        self.cache_path_entry.insert(0, "./cache")
-        self.cache_path_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        ttk.Button(cache_row, text="浏览...", command=self.browse_cache_path).pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 存储按钮
-        storage_btn_row = ttk.Frame(storage_frame)
-        storage_btn_row.pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(storage_btn_row, text="从配置加载", command=self.load_storage_from_config).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(storage_btn_row, text="保存到配置", command=self.save_storage_to_config).pack(side=tk.LEFT)
-        
-        # 配置格式说明
-        info_frame = ttk.LabelFrame(scrollable_frame, text="配置格式说明", padding="10")
-        info_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        info_text = """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【Telegram 配置】[telegram]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GUI 项目: Bot Token 输入框 → 配置项: token
-token = "xxx" # 你的 Bot Token, 在 @BotFather 获取
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【代理设置】[telegram.proxy]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GUI 项目: 启用代理 → 配置项: enable
-GUI 项目: 代理地址 → 配置项: url
-# 启用代理连接 telegram
-enable = true
-url = "xxxxx"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【用户配置】[[users]]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GUI 项目: 用户 ID → 配置项: id
-GUI 项目: 存储端 → 配置项: storages
-GUI 项目: 黑名单模式 → 配置项: blacklist
-[[users]]
-id = xxx # 你的 Telegram 账号 id
-storages = []
-blacklist = true
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【存储设置】[[storages]]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GUI 项目: 存储名称 → 配置项: name
-GUI 项目: 存储类型 → 配置项: type
-GUI 项目: 启用存储 → 配置项: enable
-GUI 项目: 保存路径 → 配置项: base_path
-GUI 项目: 同时任务数 → 配置项: concurrent_tasks
-GUI 项目: 缓存路径 → 配置项: cache_path
-[[storages]]
-name = "本地磁盘"
-type = "local"
-enable = true
-base_path = "xxxx"
-concurrent_tasks = x
-cache_path = "xxx"""
-        info_label = ttk.Label(info_frame, text=info_text, font=("Consolas", 9), justify=tk.LEFT)
-        info_label.pack(fill=tk.X)
-        
-        # 状态提示
-        self.settings_status = ttk.Label(scrollable_frame, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
-        self.settings_status.pack(fill=tk.X, pady=(10, 0))
-    
-    def create_web_tab(self, parent):
-        info_frame = ttk.LabelFrame(parent, text="Web 监控服务", padding="10")
-        info_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        info_text = "启动 Web 服务后，可通过浏览器远程查看监控状态、日志和编辑配置。"
-        ttk.Label(info_frame, text=info_text, wraplength=650).pack(fill=tk.X)
-        
-        port_frame = ttk.Frame(parent)
-        port_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Label(port_frame, text="监听端口:").pack(side=tk.LEFT)
-        self.port_entry = ttk.Entry(port_frame, width=10)
-        self.port_entry.insert(0, "8080")
-        self.port_entry.pack(side=tk.LEFT, padx=(5, 20))
-        
-        ttk.Label(port_frame, text="状态:").pack(side=tk.LEFT)
-        self.web_status_label = ttk.Label(port_frame, text="未启动", foreground="gray")
-        self.web_status_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        btn_frame = ttk.Frame(parent)
-        btn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.start_web_btn = ttk.Button(btn_frame, text="启动 Web 服务", command=self.start_web_server)
-        self.start_web_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.stop_web_btn = ttk.Button(btn_frame, text="停止 Web 服务", command=self.stop_web_server, state=tk.DISABLED)
-        self.stop_web_btn.pack(side=tk.LEFT, padx=(0, 10))
-        self.open_browser_btn = ttk.Button(btn_frame, text="打开浏览器", command=self.open_web_browser, state=tk.DISABLED)
-        self.open_browser_btn.pack(side=tk.LEFT)
-        
-        url_frame = ttk.LabelFrame(parent, text="访问地址", padding="10")
-        url_frame.pack(fill=tk.X, pady=(0, 10))
-        self.url_label = ttk.Label(url_frame, text="Web 服务未启动", font=("Consolas", 11))
-        self.url_label.pack(fill=tk.X)
-        
-        tips_frame = ttk.LabelFrame(parent, text="使用提示", padding="10")
-        tips_frame.pack(fill=tk.X)
-        tips_text = "本地访问: http://127.0.0.1:端口号\n局域网访问: http://本机IP:端口号\nWeb 界面支持查看实时日志、编辑配置、控制进程"
-        ttk.Label(tips_frame, text=tips_text, justify=tk.LEFT).pack(fill=tk.X)
-    
-    def log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
-        self.log_text.see(tk.END)
-        lines = int(self.log_text.index('end-1c').split('.')[0])
-        if lines > 100:
-            self.log_text.delete('1.0', '2.0')
-    
-    def add_console_log(self, message):
-        """添加控制台日志"""
-        global recent_logs, download_tasks
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_line = f"[{timestamp}] {message}"
-        
-        # 添加到全局日志队列（用于Web显示）
-        recent_logs.append(log_line)
-        
-        # 解析日志提取下载任务信息
-        self.parse_download_task(message)
-        
-        # 写入日志文件
-        if self.log_file:
-            try:
-                self.log_file.write(log_line + '\n')
-                self.log_file.flush()
-            except Exception:
-                pass
-        
-        # 添加到队列等待UI更新
-        self.log_queue.put(log_line)
-    
-    def process_log_queue(self):
-        """处理日志队列，更新UI"""
-        try:
-            while True:
-                log_line = self.log_queue.get_nowait()
-                self.console_log.insert(tk.END, log_line + '\n')
-                if self.auto_scroll_var.get():
-                    self.console_log.see(tk.END)
-                # 限制显示行数
-                lines = int(self.console_log.index('end-1c').split('.')[0])
-                if lines > 2000:
-                    self.console_log.delete('1.0', '500.0')
-        except queue.Empty:
-            pass
-        
-        if self.running:
-            self.root.after(100, self.process_log_queue)
-    
-    def parse_download_task(self, message):
-        """解析日志提取下载任务信息"""
-        global download_tasks
-        import re
-        
-        try:
-            # 解析任务开始: Processing task: d60bg6hcbfigvi5mp0ig
-            task_match = re.search(r'Processing task: (\w+)', message)
-            if task_match:
-                task_id = task_match.group(1)
-                if task_id not in download_tasks:
-                    download_tasks[task_id] = {
-                        'task_id': task_id,
-                        'filename': '',
-                        'downloaded': 0,
-                        'total': 0,
-                        'progress': 0,
-                        'status': '处理中',
-                        'start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
-            
-            # 解析文件开始下载: file[文件名]: Starting file download
-            start_match = re.search(r'file\[(.+?)\]: Starting file download', message)
-            if start_match:
-                filename = start_match.group(1)
-                # 查找最近的任务并更新文件名
-                for task_id in reversed(list(download_tasks.keys())):
-                    if not download_tasks[task_id]['filename']:
-                        download_tasks[task_id]['filename'] = filename
-                        download_tasks[task_id]['status'] = '下载中'
-                        break
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
-            
-            # 解析进度更新: Progress update: 文件名, 已下载/总大小
-            progress_match = re.search(r'Progress update: (.+?), (\d+)/(\d+)', message)
-            if progress_match:
-                filename = progress_match.group(1)
-                downloaded = int(progress_match.group(2))
-                total = int(progress_match.group(3))
-                progress = (downloaded / total * 100) if total > 0 else 0
-                
-                # 查找对应的任务并更新
-                for task_id, task in download_tasks.items():
-                    if task['filename'] == filename:
-                        download_tasks[task_id]['downloaded'] = downloaded
-                        download_tasks[task_id]['total'] = total
-                        download_tasks[task_id]['progress'] = round(progress, 1)
-                        download_tasks[task_id]['status'] = '下载中'
-                        break
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
-            
-            # 解析下载完成: file downloaded successfully 或 upload completed
-            if 'downloaded successfully' in message or 'upload completed' in message or 'completed' in message.lower():
-                # 尝试提取文件名
-                complete_match = re.search(r'file\[(.+?)\].*(?:downloaded successfully|completed)', message)
-                if complete_match:
-                    filename = complete_match.group(1)
-                    for task_id, task in list(download_tasks.items()):
-                        if task['filename'] == filename:
-                            download_tasks[task_id]['status'] = '已完成'
-                            download_tasks[task_id]['progress'] = 100
-                            # 30秒后移除已完成的任务
-                            self.root.after(30000, lambda tid=task_id: self.remove_completed_task(tid))
-                            break
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
-            
-            # 解析任务失败或取消
-            if 'failed' in message.lower() or 'error' in message.lower() or 'canceled' in message.lower() or 'cancelled' in message.lower():
-                # 检查是否是取消操作
-                is_canceled = 'canceled' in message.lower() or 'cancelled' in message.lower() or 'context canceled' in message.lower()
-                
-                error_match = re.search(r'file\s*\[(.+?)\]', message)
-                if error_match:
-                    filename = error_match.group(1)
-                    for task_id, task in list(download_tasks.items()):
-                        if task['filename'] == filename:
-                            if is_canceled:
-                                download_tasks[task_id]['status'] = '已取消'
-                            else:
-                                download_tasks[task_id]['status'] = '失败'
-                            # 30秒后移除失败/取消的任务
-                            self.root.after(30000, lambda tid=task_id: self.remove_finished_task(tid))
-                            break
-                # 更新任务列表 UI
-                self.update_tasks_ui()
-                return
-                
-        except Exception:
-            pass
-    
-    def remove_completed_task(self, task_id):
-        """移除已完成的任务"""
-        self.remove_finished_task(task_id)
-    
-    def remove_finished_task(self, task_id):
-        """移除已完成、已取消或失败的任务"""
-        global download_tasks
-        if task_id in download_tasks and download_tasks[task_id]['status'] in ['已完成', '已取消', '失败']:
-            del download_tasks[task_id]
-            self.update_tasks_ui()
-    def clear_console_log(self):
-        """清空控制台日志显示"""
-        self.console_log.delete('1.0', tk.END)
-    
-    def open_log_folder(self):
-        """打开日志文件夹"""
-        if self.target_path:
-            log_dir = os.path.join(os.path.dirname(self.target_path), "logs")
-            if os.path.exists(log_dir):
-                if sys.platform == 'win32':
-                    os.startfile(log_dir)
-                else:
-                    subprocess.Popen(['xdg-open', log_dir])
-            else:
-                messagebox.showinfo("提示", f"日志文件夹不存在: {log_dir}")
-        else:
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-    
-    def find_process(self):
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            try:
-                if proc.info['name'] and proc.info['name'].lower() == self.target_process.lower():
-                    return proc
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        return None
-    
-    def format_bytes(self, bytes_value):
-        if bytes_value < 1024:
-            return f"{bytes_value} B"
-        elif bytes_value < 1024 * 1024:
-            return f"{bytes_value / 1024:.1f} KB"
-        elif bytes_value < 1024 * 1024 * 1024:
-            return f"{bytes_value / (1024 * 1024):.1f} MB"
-        else:
-            return f"{bytes_value / (1024 * 1024 * 1024):.2f} GB"
-    
-    def format_speed(self, bytes_per_sec):
-        if bytes_per_sec < 1024:
-            return f"{bytes_per_sec:.0f} B/s"
-        elif bytes_per_sec < 1024 * 1024:
-            return f"{bytes_per_sec / 1024:.1f} KB/s"
-        else:
-            return f"{bytes_per_sec / (1024 * 1024):.2f} MB/s"
-    
-    def format_uptime(self, seconds):
-        if seconds < 60:
-            return f"{int(seconds)}秒"
-        elif seconds < 3600:
-            return f"{int(seconds // 60)}分{int(seconds % 60)}秒"
-        elif seconds < 86400:
-            return f"{int(seconds // 3600)}时{int((seconds % 3600) // 60)}分"
-        else:
-            return f"{int(seconds // 86400)}天{int((seconds % 86400) // 3600)}时"
-    
-    def update_ui(self):
-        global monitor_data
-        
-        if not self.running:
-            return
-        
-        try:
-            proc = self.find_process()
-            
-            if proc:
-                try:
-                    self.status_label.config(text="运行中", foreground="green")
-                    self.pid_label.config(text=str(proc.pid))
-                    monitor_data["status"] = "运行中"
-                    monitor_data["pid"] = str(proc.pid)
-                    
-                    with proc.oneshot():
-                        cpu_percent = proc.cpu_percent()
-                        self.cpu_progress['value'] = min(cpu_percent, 100)
-                        self.cpu_label.config(text=f"{cpu_percent:.1f}%")
-                        monitor_data["cpu"] = round(cpu_percent, 1)
-                        
-                        mem_info = proc.memory_info()
-                        mem_mb = mem_info.rss / (1024 * 1024)
-                        total_mem = psutil.virtual_memory().total
-                        mem_percent = (mem_info.rss / total_mem) * 100
-                        self.mem_progress['value'] = min(mem_percent, 100)
-                        self.mem_label.config(text=f"{mem_mb:.1f} MB")
-                        monitor_data["memory"] = f"{mem_mb:.1f} MB"
-                        monitor_data["memory_percent"] = round(mem_percent, 1)
-                        
-                        num_threads = proc.num_threads()
-                        self.thread_label.config(text=str(num_threads))
-                        monitor_data["threads"] = str(num_threads)
-                        
-                        try:
-                            num_handles = proc.num_handles()
-                            self.handle_label.config(text=str(num_handles))
-                            monitor_data["handles"] = str(num_handles)
-                        except AttributeError:
-                            self.handle_label.config(text="N/A")
-                            monitor_data["handles"] = "N/A"
-                        
-                        create_time = proc.create_time()
-                        uptime = time.time() - create_time
-                        uptime_str = self.format_uptime(uptime)
-                        self.uptime_label.config(text=uptime_str)
-                        monitor_data["uptime"] = uptime_str
-                        
-                        exe_path = proc.exe()
-                        if exe_path and not self.target_path:
-                            self.target_path = exe_path
-                            self.path_label.config(text=exe_path)
-                            self.update_config_path()
-                        
-                        try:
-                            io_counters = proc.io_counters()
-                            current_time = time.time()
-                            
-                            if self.proc_last_io and self.proc_last_time:
-                                time_diff = current_time - self.proc_last_time
-                                if time_diff > 0:
-                                    read_speed = (io_counters.read_bytes - self.proc_last_io.read_bytes) / time_diff
-                                    write_speed = (io_counters.write_bytes - self.proc_last_io.write_bytes) / time_diff
-                                    
-                                    dl_speed = self.format_speed(max(0, write_speed))
-                                    ul_speed = self.format_speed(max(0, read_speed))
-                                    self.download_label.config(text=dl_speed)
-                                    self.upload_label.config(text=ul_speed)
-                                    monitor_data["download_speed"] = dl_speed
-                                    monitor_data["upload_speed"] = ul_speed
-                            
-                            total_dl = self.format_bytes(io_counters.write_bytes)
-                            total_ul = self.format_bytes(io_counters.read_bytes)
-                            self.total_download_label.config(text=total_dl)
-                            self.total_upload_label.config(text=total_ul)
-                            monitor_data["total_download"] = total_dl
-                            monitor_data["total_upload"] = total_ul
-                            
-                            self.proc_last_io = io_counters
-                            self.proc_last_time = current_time
-                        except (psutil.AccessDenied, AttributeError):
-                            pass
-                    
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    self.set_offline_status()
-            else:
-                self.set_offline_status()
-            
-            try:
-                net_io = psutil.net_io_counters()
-                current_time = time.time()
-                
-                if self.last_net_io and self.last_net_time:
-                    time_diff = current_time - self.last_net_time
-                    if time_diff > 0:
-                        download_speed = (net_io.bytes_recv - self.last_net_io.bytes_recv) / time_diff
-                        upload_speed = (net_io.bytes_sent - self.last_net_io.bytes_sent) / time_diff
-                        
-                        sys_dl = self.format_speed(max(0, download_speed))
-                        sys_ul = self.format_speed(max(0, upload_speed))
-                        self.sys_download_label.config(text=sys_dl)
-                        self.sys_upload_label.config(text=sys_ul)
-                        monitor_data["sys_download"] = sys_dl
-                        monitor_data["sys_upload"] = sys_ul
-                
-                self.last_net_io = net_io
-                self.last_net_time = current_time
-            except Exception:
-                pass
-            
-            monitor_data["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-        except Exception as e:
-            self.log(f"更新错误: {str(e)}")
-        
-        if self.running:
-            self.root.after(self.update_interval, self.update_ui)
-    
-    def set_offline_status(self):
-        global monitor_data
-        
-        self.status_label.config(text="未运行", foreground="red")
-        self.pid_label.config(text="-")
-        self.uptime_label.config(text="-")
-        self.cpu_progress['value'] = 0
-        self.cpu_label.config(text="0%")
-        self.mem_progress['value'] = 0
-        self.mem_label.config(text="0 MB")
-        self.thread_label.config(text="-")
-        self.handle_label.config(text="-")
-        self.download_label.config(text="0 KB/s")
-        self.upload_label.config(text="0 KB/s")
-        self.total_download_label.config(text="0 MB")
-        self.total_upload_label.config(text="0 MB")
-        self.proc_last_io = None
-        self.proc_last_time = None
-        
-        monitor_data.update({
-            "status": "未运行", "pid": "-", "uptime": "-", "cpu": 0,
-            "memory": "0 MB", "memory_percent": 0, "threads": "-", "handles": "-",
-            "download_speed": "0 KB/s", "upload_speed": "0 KB/s",
-            "total_download": "0 MB", "total_upload": "0 MB"
-        })
-    
-    def start_monitoring(self):
-        self.update_ui()
-    
-    def update_config_path(self):
-        global config_path
-        if self.target_path:
-            dir_path = os.path.dirname(self.target_path)
-            cfg_path = os.path.join(dir_path, "config.toml")
-            config_path = cfg_path
-            self.config_path_label.config(text=cfg_path, foreground="black")
-            if os.path.exists(cfg_path):
-                self.load_config()
-                # 如果启用了自动加载，则加载设置
-                self.auto_load_settings_on_startup()
-    
-
-    def auto_detect_program(self):
-        """启动时自动检测 saveany-bot 程序"""
-        if self.target_path:
-            # 已经选择过程序，不需要再检测
-            return
-        
-        # 常见的搜索路径
-        search_paths = [
-            os.getcwd(),  # 当前工作目录
-            os.path.dirname(os.path.abspath(__file__)),  # 脚本所在目录
-            os.path.expanduser("~"),  # 用户主目录
-        ]
-        
-        # 添加子目录搜索路径
-        for base_path in list(search_paths):
-            for subdir in ["SaveAny-Bot", "saveany-bot", "bot"]:
-                search_paths.append(os.path.join(base_path, subdir))
-        
-        # 搜索 saveany-bot.exe
-        for search_path in search_paths:
-            if not os.path.exists(search_path):
-                continue
-            
-            exe_path = os.path.join(search_path, "saveany-bot.exe")
-            if os.path.exists(exe_path):
-                self.target_path = exe_path
-                self.target_process = "saveany-bot.exe"
-                self.path_label.config(text=exe_path, foreground="black")
-                self.log(f"[自动检测] 找到程序: {exe_path}")
-                self.update_config_path()
-                return
-        
-        self.log("[自动检测] 未找到 saveany-bot.exe，请手动选择")
-
-    def browse_exe(self):
-        filepath = filedialog.askopenfilename(
-            title="选择 SaveAny-Bot 程序",
-            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
-        )
-        if filepath:
-            self.target_path = filepath
-            self.target_process = os.path.basename(filepath)
-            self.path_label.config(text=filepath)
-            self.log(f"已选择程序: {filepath}")
-            self.update_config_path()
-    
-    def start_process(self):
-        """启动进程并捕获输出"""
-        if self.find_process():
-            messagebox.showinfo("提示", "进程已在运行中")
-            return
-        
-        if not self.target_path:
-            # 尝试自动检测程序
-            self.auto_detect_program()
-            if not self.target_path:
-                messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-                self.browse_exe()
-                return
-        
-        if not os.path.exists(self.target_path):
-            messagebox.showerror("错误", f"程序文件不存在: {self.target_path}")
-            return
-        
-        try:
-            work_dir = os.path.dirname(self.target_path)
-            
-            # 创建日志目录
-            log_dir = os.path.join(work_dir, "logs")
-            os.makedirs(log_dir, exist_ok=True)
-            
-            # 创建日志文件
-            log_filename = datetime.now().strftime("bot_%Y%m%d_%H%M%S.log")
-            self.log_file_path = os.path.join(log_dir, log_filename)
-            self.log_file = open(self.log_file_path, 'w', encoding='utf-8')
-            self.log_path_label.config(text=self.log_file_path, foreground="green")
-            
-            # 启动进程，捕获输出
-            if sys.platform == 'win32':
-                # Windows: 使用 STARTUPINFO 隐藏窗口
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-                
-                self.managed_process = subprocess.Popen(
-                    [self.target_path],
-                    cwd=work_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    startupinfo=startupinfo,
-                    bufsize=1,
-                    universal_newlines=True,
-                    encoding='utf-8',
-                    errors='replace'
-                )
-            else:
-                self.managed_process = subprocess.Popen(
-                    [self.target_path],
-                    cwd=work_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-            
-            self.log(f"正在启动进程: {self.target_path}")
-            self.log(f"日志文件: {self.log_file_path}")
-            self.add_console_log(f"=== SaveAny-Bot 启动 ===")
-            self.add_console_log(f"程序路径: {self.target_path}")
-            self.add_console_log(f"工作目录: {work_dir}")
-            self.add_console_log(f"日志文件: {self.log_file_path}")
-            self.add_console_log("=" * 50)
-            
-            # 启动输出读取线程
-            output_thread = threading.Thread(target=self.read_process_output, daemon=True)
-            output_thread.start()
-            
-        except Exception as e:
-            messagebox.showerror("错误", f"启动失败: {str(e)}")
-            self.log(f"启动失败: {str(e)}")
-    
-    def read_process_output(self):
-        """读取进程输出"""
-        if not self.managed_process:
-            return
-        
-        try:
-            for line in iter(self.managed_process.stdout.readline, ''):
-                if not self.running:
-                    break
-                line = line.rstrip('\n\r')
-                if line:
-                    self.add_console_log(line)
-            
-            # 进程结束
-            self.managed_process.stdout.close()
-            return_code = self.managed_process.wait()
-            self.add_console_log(f"=== SaveAny-Bot 已退出，返回码: {return_code} ===")
-            
-        except Exception as e:
-            self.add_console_log(f"读取输出错误: {str(e)}")
-        finally:
-            self.managed_process = None
-            if self.log_file:
-                try:
-                    self.log_file.close()
-                except Exception:
-                    pass
-                self.log_file = None
-    
-    def stop_process(self):
-        proc = self.find_process()
-        if not proc:
-            messagebox.showinfo("提示", "进程未在运行")
-            return
-        
-        if messagebox.askyesno("确认", "确定要停止 SaveAny-Bot 进程吗？"):
-            try:
-                proc.terminate()
-                self.log("已发送停止信号")
-                try:
-                    proc.wait(timeout=5)
-                    self.log("进程已停止")
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                    self.log("进程已强制终止")
-            except Exception as e:
-                messagebox.showerror("错误", f"停止失败: {str(e)}")
-                self.log(f"停止失败: {str(e)}")
-    
-    def restart_process(self):
-        proc = self.find_process()
-        if proc:
-            try:
-                if not self.target_path:
-                    self.target_path = proc.exe()
-                
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                
-                self.log("进程已停止，正在重启...")
-                time.sleep(1)
-                self.start_process()
-            except Exception as e:
-                messagebox.showerror("错误", f"重启失败: {str(e)}")
-                self.log(f"重启失败: {str(e)}")
-        else:
-            self.start_process()
-    
-    def open_folder(self):
-        if self.target_path and os.path.exists(self.target_path):
-            folder = os.path.dirname(self.target_path)
-            if sys.platform == 'win32':
-                os.startfile(folder)
-            else:
-                subprocess.Popen(['xdg-open', folder])
-        else:
-            proc = self.find_process()
-            if proc:
-                try:
-                    folder = os.path.dirname(proc.exe())
-                    if sys.platform == 'win32':
-                        os.startfile(folder)
-                    else:
-                        subprocess.Popen(['xdg-open', folder])
-                except Exception:
-                    messagebox.showwarning("警告", "无法获取程序目录")
-            else:
-                messagebox.showwarning("警告", "请先选择程序或等待进程运行")
-    
-    def load_config(self):
-        global config_path
-        if not config_path:
-            if self.target_path:
-                self.update_config_path()
-            else:
-                self.config_status.config(text="请先选择 SaveAny-Bot 程序路径", foreground="red")
-                return
-        
-        if not os.path.exists(config_path):
-            self.config_status.config(text=f"配置文件不存在: {config_path}", foreground="red")
-            self.config_editor.delete('1.0', tk.END)
-            self.config_editor.insert('1.0', f"# 配置文件不存在: {config_path}")
-            return
-        
-        try:
+        if config_path and os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            self.config_editor.delete('1.0', tk.END)
-            self.config_editor.insert('1.0', content)
-            self.config_status.config(text=f"配置已加载: {config_path}", foreground="green")
-            self.log(f"已加载配置文件: {config_path}")
-        except Exception as e:
-            self.config_status.config(text=f"加载失败: {str(e)}", foreground="red")
-    
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(content.encode('utf-8'))
+        else:
+            self.send_error(404, "Config file not found")
+
     def save_config(self):
+        """保存配置文件"""
         global config_path
         if not config_path:
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            self.send_error(500, "Config path not set")
             return
-        
-        content = self.config_editor.get('1.0', tk.END)
-        
         try:
-            if os.path.exists(config_path):
-                backup_path = config_path + ".bak"
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    backup_content = f.read()
-                with open(backup_path, 'w', encoding='utf-8') as f:
-                    f.write(backup_content)
-            
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
             with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.config_status.config(text=f"配置已保存: {config_path}", foreground="green")
-            self.log(f"配置已保存到: {config_path}")
-            messagebox.showinfo("成功", "配置文件已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
+                f.write(post_data)
+            response = {'status': 'success', 'message': '配置已成功保存'}
         except Exception as e:
-            self.config_status.config(text=f"保存失败: {str(e)}", foreground="red")
-            messagebox.showerror("错误", f"保存失败: {str(e)}")
-    
-    def reload_config(self):
-        if messagebox.askyesno("确认", "确定要重新加载配置文件吗？\n未保存的修改将丢失。"):
-            self.load_config()
-    
-    def start_web_server(self):
-        try:
-            self.web_port = int(self.port_entry.get())
-        except ValueError:
-            messagebox.showerror("错误", "请输入有效的端口号")
-            return
+            response = {'status': 'error', 'message': f'保存失败: {e}'}
         
-        if self.web_server is not None:
-            messagebox.showinfo("提示", "Web 服务已在运行中")
+        json_response = json.dumps(response)
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json_response.encode('utf-8'))
+
+    def send_logs(self):
+        """发送日志"""
+        global recent_logs
+        log_content = "\n".join(recent_logs)
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(log_content.encode('utf-8'))
+
+    def handle_control(self):
+        """处理进程控制请求"""
+        global control_callback
+        if not control_callback:
+            self.send_error(500, "Control callback not set")
             return
-        
         try:
-            self.web_server = StoppableHTTPServer(('0.0.0.0', self.web_port), MonitorHTTPHandler)
-            self.web_thread = threading.Thread(target=self.web_server.serve_forever_stoppable, daemon=True)
-            self.web_thread.start()
-            
-            local_ip = self.get_local_ip()
-            
-            self.web_status_label.config(text="运行中", foreground="green")
-            self.url_label.config(text=f"本地: http://127.0.0.1:{self.web_port}  |  局域网: http://{local_ip}:{self.web_port}")
-            
-            self.start_web_btn.config(state=tk.DISABLED)
-            self.stop_web_btn.config(state=tk.NORMAL)
-            self.open_browser_btn.config(state=tk.NORMAL)
-            self.port_entry.config(state=tk.DISABLED)
-            
-            self.log(f"Web 服务已启动，端口: {self.web_port}")
+            content_length = int(self.headers['Content-Length'])
+            post_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            action = post_data.get('action')
+            message = control_callback(action)
+            response = {'status': 'success', 'message': message}
         except Exception as e:
-            self.web_server = None
-            messagebox.showerror("错误", f"启动 Web 服务失败: {str(e)}")
-    
-    def stop_web_server(self):
-        if self.web_server:
-            def stop_server():
-                try:
-                    self.web_server.stop()
-                except Exception:
-                    pass
+            response = {'status': 'error', 'message': f'操作失败: {e}'}
+        
+        json_response = json.dumps(response)
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json_response.encode('utf-8'))
+
+class MonitorApp(tk.Tk):
+    """主监控应用"""
+    def __init__(self):
+        super().__init__()
+        self.title("SaveAny-Bot Monitor")
+        self.geometry("1024x768")
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.process = None
+        self.bot_path = None
+        self.start_time = None
+        self.monitoring = False
+        self.log_capture_thread = None
+        self.stop_log_capture = threading.Event()
+        self.web_server_thread = None
+        self.httpd = None
+        self.log_queue = queue.Queue()
+
+        # 设置样式
+        self.style = ttk.Style(self)
+        self.style.theme_use('clam')
+        self.configure_styles()
+
+        # 创建主框架
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 创建 Notebook
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        # 创建各个 Tab
+        self.create_monitor_tab()
+        self.create_settings_tab()
+        self.create_log_tab()
+        self.create_web_tab()
+
+        # 状态栏
+        self.status_bar = ttk.Label(self, text="准备就绪", relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # 设置全局回调
+        global control_callback
+        control_callback = self.control_process_from_web
+
+    def configure_styles(self):
+        """配置 ttk 样式"""
+        self.style.configure('TFrame', background='#f0f0f0')
+        self.style.configure('TLabel', background='#f0f0f0')
+        self.style.configure('TButton', padding=6)
+        self.style.configure('TNotebook', background='#f0f0f0', tabmargins=[2, 5, 2, 0])
+        self.style.configure('TNotebook.Tab', padding=[10, 5], font=('Segoe UI', 10))
+        self.style.map('TNotebook.Tab', background=[('selected', '#ffffff')], foreground=[('selected', '#0078d7')])
+        self.style.configure('Status.TLabel', font=('Segoe UI', 11, 'bold'))
+        self.style.configure('Running.Status.TLabel', foreground='green')
+        self.style.configure('Stopped.Status.TLabel', foreground='red')
+        self.style.configure('Header.TLabel', font=('Segoe UI', 12, 'bold'))
+
+    def create_monitor_tab(self):
+        """创建监控 Tab"""
+        monitor_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(monitor_frame, text='状态监控')
+
+        # 进程控制框架
+        control_frame = ttk.LabelFrame(monitor_frame, text="进程控制", padding="10")
+        control_frame.pack(fill=tk.X, pady=5)
+
+        self.select_button = ttk.Button(control_frame, text="选择 SaveAny-Bot 程序", command=self.select_bot_path)
+        self.select_button.pack(side=tk.LEFT, padx=5)
+        self.start_button = ttk.Button(control_frame, text="启动", command=self.start_process, state=tk.DISABLED)
+        self.start_button.pack(side=tk.LEFT, padx=5)
+        self.stop_button = ttk.Button(control_frame, text="停止", command=self.stop_process, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT, padx=5)
+        self.restart_button = ttk.Button(control_frame, text="重启", command=self.restart_process, state=tk.DISABLED)
+        self.restart_button.pack(side=tk.LEFT, padx=5)
+
+        # 状态显示框架
+        status_grid = ttk.Frame(monitor_frame, padding="10")
+        status_grid.pack(fill=tk.BOTH, expand=True, pady=5)
+        status_grid.columnconfigure(1, weight=1)
+        status_grid.columnconfigure(3, weight=1)
+
+        self.create_status_label(status_grid, "程序路径:", 0, 0)
+        self.bot_path_label = self.create_status_value(status_grid, "尚未选择", 0, 1, columnspan=3)
+
+        self.create_status_label(status_grid, "运行状态:", 1, 0)
+        self.status_label = self.create_status_value(status_grid, "未运行", 1, 1, style='Stopped.Status.TLabel')
+        self.create_status_label(status_grid, "进程 PID:", 1, 2)
+        self.pid_label = self.create_status_value(status_grid, "-", 1, 3)
+
+        self.create_status_label(status_grid, "CPU 使用率:", 2, 0)
+        self.cpu_label = self.create_status_value(status_grid, "0%", 2, 1)
+        self.create_status_label(status_grid, "内存使用:", 2, 2)
+        self.memory_label = self.create_status_value(status_grid, "0 MB", 2, 3)
+
+        self.create_status_label(status_grid, "运行时长:", 3, 0)
+        self.uptime_label = self.create_status_value(status_grid, "-", 3, 1)
+        self.create_status_label(status_grid, "线程数/句柄数:", 3, 2)
+        self.handles_label = self.create_status_value(status_grid, "- / -", 3, 3)
+
+        # 进度条
+        ttk.Label(status_grid, text="CPU:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.cpu_progress = ttk.Progressbar(status_grid, orient=tk.HORIZONTAL, length=200, mode='determinate')
+        self.cpu_progress.grid(row=4, column=1, sticky=tk.EW, pady=5)
+        ttk.Label(status_grid, text="内存:").grid(row=4, column=2, sticky=tk.W, pady=5)
+        self.memory_progress = ttk.Progressbar(status_grid, orient=tk.HORIZONTAL, length=200, mode='determinate')
+        self.memory_progress.grid(row=4, column=3, sticky=tk.EW, pady=5)
+
+        # 网络流量框架
+        net_frame = ttk.LabelFrame(monitor_frame, text="网络流量", padding="10")
+        net_frame.pack(fill=tk.X, pady=5)
+        net_frame.columnconfigure(1, weight=1)
+        net_frame.columnconfigure(3, weight=1)
+
+        self.create_status_label(net_frame, "下载/上传速度:", 0, 0)
+        self.net_io_label = self.create_status_value(net_frame, "0 KB/s / 0 KB/s", 0, 1)
+        self.create_status_label(net_frame, "总下载/上传:", 0, 2)
+        self.net_total_label = self.create_status_value(net_frame, "0 MB / 0 MB", 0, 3)
+        self.create_status_label(net_frame, "系统网络速度:", 1, 0)
+        self.sys_net_io_label = self.create_status_value(net_frame, "0 KB/s / 0 KB/s", 1, 1)
+
+    def create_status_label(self, parent, text, row, col):
+        ttk.Label(parent, text=text).grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
+
+    def create_status_value(self, parent, text, row, col, columnspan=1, style='Status.TLabel'):
+        label = ttk.Label(parent, text=text, style=style)
+        label.grid(row=row, column=col, columnspan=columnspan, sticky=tk.W, padx=5, pady=2)
+        return label
+
+    def create_settings_tab(self):
+        """创建设置 Tab"""
+        settings_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(settings_frame, text='配置编辑')
+
+        # 创建一个子Notebook用于分类设置
+        settings_notebook = ttk.Notebook(settings_frame)
+        settings_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Telegram 设置
+        telegram_tab = ttk.Frame(settings_notebook, padding="10")
+        settings_notebook.add(telegram_tab, text='Telegram')
+        self.create_telegram_settings(telegram_tab)
+
+        # 存储设置
+        storage_tab = ttk.Frame(settings_notebook, padding="10")
+        settings_notebook.add(storage_tab, text='存储')
+        self.create_storage_settings(storage_tab)
+
+        # 下载设置
+        downloader_tab = ttk.Frame(settings_notebook, padding="10")
+        settings_notebook.add(downloader_tab, text='下载')
+        self.create_downloader_settings(downloader_tab)
+
+        # 其他设置
+        misc_tab = ttk.Frame(settings_notebook, padding="10")
+        settings_notebook.add(misc_tab, text='其他')
+        self.create_misc_settings(misc_tab)
+
+    def create_telegram_settings(self, parent):
+        """创建 Telegram 设置界面"""
+        # API Token
+        ttk.Label(parent, text="Bot Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.token_entry = ttk.Entry(parent, width=50)
+        self.token_entry.grid(row=0, column=1, sticky=tk.EW, pady=5)
+
+        # Admin Users
+        ttk.Label(parent, text="Admin Users (逗号分隔):").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.admins_entry = ttk.Entry(parent, width=50)
+        self.admins_entry.grid(row=1, column=1, sticky=tk.EW, pady=5)
+
+        # Allowed Users
+        ttk.Label(parent, text="Allowed Users (逗号分隔):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.allowed_users_entry = ttk.Entry(parent, width=50)
+        self.allowed_users_entry.grid(row=2, column=1, sticky=tk.EW, pady=5)
+
+        # Proxy
+        proxy_frame = ttk.LabelFrame(parent, text="代理", padding="10")
+        proxy_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=10)
+        self.proxy_enable_var = tk.BooleanVar()
+        ttk.Checkbutton(proxy_frame, text="启用代理", variable=self.proxy_enable_var).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(proxy_frame, text="URL:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.proxy_url_entry = ttk.Entry(proxy_frame, width=40)
+        self.proxy_url_entry.grid(row=1, column=1, sticky=tk.EW, pady=5)
+
+        # 保存按钮
+        ttk.Button(parent, text="保存 Telegram 设置", command=self.save_telegram_settings).grid(row=4, column=1, sticky=tk.E, pady=10)
+
+    def create_storage_settings(self, parent):
+        """创建存储设置界面"""
+        # 仅支持第一个 [[storages]] 的编辑
+        ttk.Label(parent, text="注意: 仅支持编辑第一个存储配置", foreground="blue").grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+
+        ttk.Label(parent, text="名称:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.storage_name_entry = ttk.Entry(parent, width=40)
+        self.storage_name_entry.grid(row=1, column=1, sticky=tk.EW, pady=5)
+
+        ttk.Label(parent, text="类型:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.storage_type_var = tk.StringVar()
+        storage_types = ["local", "s3", "oss", "gdrive", "onedrive"]
+        self.storage_type_menu = ttk.Combobox(parent, textvariable=self.storage_type_var, values=storage_types, state="readonly")
+        self.storage_type_menu.grid(row=2, column=1, sticky=tk.EW, pady=5)
+
+        self.storage_enable_var = tk.BooleanVar()
+        ttk.Checkbutton(parent, text="启用", variable=self.storage_enable_var).grid(row=3, column=1, sticky=tk.W, pady=5)
+
+        ttk.Label(parent, text="基础路径 (base_path):").grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.storage_path_entry = ttk.Entry(parent, width=40)
+        self.storage_path_entry.grid(row=4, column=1, sticky=tk.EW, pady=5)
+
+        ttk.Label(parent, text="并发任务数 (concurrent_tasks):").grid(row=5, column=0, sticky=tk.W, pady=5)
+        self.concurrent_tasks_entry = ttk.Entry(parent, width=10)
+        self.concurrent_tasks_entry.grid(row=5, column=1, sticky=tk.W, pady=5)
+
+        ttk.Label(parent, text="缓存路径 (cache_path):").grid(row=6, column=0, sticky=tk.W, pady=5)
+        self.cache_path_entry = ttk.Entry(parent, width=40)
+        self.cache_path_entry.grid(row=6, column=1, sticky=tk.EW, pady=5)
+
+        ttk.Button(parent, text="保存存储设置", command=self.save_storage_settings).grid(row=7, column=1, sticky=tk.E, pady=10)
+
+    def create_downloader_settings(self, parent):
+        """创建下载设置界面"""
+        ttk.Label(parent, text="下载设置正在开发中...").pack(pady=20)
+
+    def create_misc_settings(self, parent):
+        """创建其他设置界面"""
+        ttk.Label(parent, text="其他设置正在开发中...").pack(pady=20)
+
+    def create_log_tab(self):
+        """创建日志 Tab"""
+        log_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(log_frame, text='实时日志')
+
+        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, state=tk.DISABLED, font=("Consolas", 10))
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+
+    def create_web_tab(self):
+        """创建 Web 访问 Tab"""
+        web_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(web_frame, text='Web 监控')
+
+        web_control_frame = ttk.Frame(web_frame)
+        web_control_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(web_control_frame, text="端口:").pack(side=tk.LEFT, padx=5)
+        self.web_port_entry = ttk.Entry(web_control_frame, width=10)
+        self.web_port_entry.insert(0, "8080")
+        self.web_port_entry.pack(side=tk.LEFT, padx=5)
+
+        self.web_start_button = ttk.Button(web_control_frame, text="启动 Web 服务", command=self.start_web_server)
+        self.web_start_button.pack(side=tk.LEFT, padx=5)
+        self.web_stop_button = ttk.Button(web_control_frame, text="停止 Web 服务", command=self.stop_web_server, state=tk.DISABLED)
+        self.web_stop_button.pack(side=tk.LEFT, padx=5)
+
+        self.web_status_label = ttk.Label(web_frame, text="Web 服务未运行", foreground="red")
+        self.web_status_label.pack(pady=10)
+
+        self.web_link_label = ttk.Label(web_frame, text="", foreground="blue", cursor="hand2")
+        self.web_link_label.pack(pady=5)
+        self.web_link_label.bind("<Button-1>", lambda e: webbrowser.open(self.web_link_label.cget("text")))
+
+    def select_bot_path(self):
+        """选择 SaveAny-Bot 主程序路径"""
+        path = filedialog.askopenfilename(
+            title="选择 SaveAny-Bot 主程序",
+            filetypes=(("可执行文件", "*.exe"), ("所有文件", "*.*"))
+        )
+        if path:
+            self.bot_path = path
+            self.bot_path_label.config(text=self.bot_path)
+            self.start_button.config(state=tk.NORMAL)
+            self.status_bar.config(text=f"已选择程序: {self.bot_path}")
             
-            stop_thread = threading.Thread(target=stop_server, daemon=True)
-            stop_thread.start()
-            self.root.after(500, self._finish_stop_web_server)
-    
-    def _finish_stop_web_server(self):
-        self.web_server = None
-        self.web_thread = None
-        
-        self.web_status_label.config(text="已停止", foreground="gray")
-        self.url_label.config(text="Web 服务未启动")
-        
-        self.start_web_btn.config(state=tk.NORMAL)
-        self.stop_web_btn.config(state=tk.DISABLED)
-        self.open_browser_btn.config(state=tk.DISABLED)
-        self.port_entry.config(state=tk.NORMAL)
-        
-        self.log("Web 服务已停止")
-    
-    def open_web_browser(self):
-        webbrowser.open(f"http://127.0.0.1:{self.web_port}")
-    
-    def get_local_ip(self):
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"
-    
-    def handle_web_control(self, action):
-        if action == 'start':
-            if self.find_process():
-                return "进程已在运行中"
-            if not self.target_path:
-                return "请先在桌面程序中选择 SaveAny-Bot 程序路径"
-            # 使用 root.after 在主线程中启动
-            self.root.after(0, self.start_process)
-            return "启动命令已发送"
-        
-        elif action == 'stop':
-            proc = self.find_process()
-            if not proc:
-                return "进程未在运行"
-            try:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                return "进程已停止"
-            except Exception as e:
-                return f"停止失败: {str(e)}"
-        
-        elif action == 'restart':
-            proc = self.find_process()
-            if proc:
-                try:
-                    if not self.target_path:
-                        self.target_path = proc.exe()
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5)
-                    except psutil.TimeoutExpired:
-                        proc.kill()
-                    time.sleep(1)
-                except Exception as e:
-                    return f"停止失败: {str(e)}"
-            
-            if not self.target_path:
-                return "请先在桌面程序中选择 SaveAny-Bot 程序路径"
-            self.root.after(0, self.start_process)
-            return "重启命令已发送"
-        
-        return "未知操作"
-    
-    def test_proxy_connection(self):
-        """测试 SOCKS5 代理连接"""
-        proxy_url = self.proxy_url_entry.get().strip()
-        if not proxy_url:
-            self.proxy_status_label.config(text="请输入代理地址", foreground="red")
-            return
-        
-        self.proxy_status_label.config(text="测试中...", foreground="orange")
-        self.root.update()
-        
-        def do_test():
-            try:
-                import re
-                # 解析 SOCKS5 URL: socks5://[user:pass@]host:port
-                pattern = r'socks5://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)'
-                match = re.match(pattern, proxy_url)
-                if not match:
-                    self.root.after(0, lambda: self.proxy_status_label.config(text="URL 格式错误", foreground="red"))
-                    return
-                
-                username = match.group(1)
-                password = match.group(2)
-                host = match.group(3)
-                port = int(match.group(4))
-                
-                start_time = time.time()
-                
-                # 尝试连接代理服务器
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(10)
-                sock.connect((host, port))
-                
-                # SOCKS5 握手
-                if username and password:
-                    # 用户名/密码认证
-                    sock.send(b'\x05\x02\x00\x02')  # 支持无认证和用户名/密码认证
-                else:
-                    sock.send(b'\x05\x01\x00')  # 无认证
-                
-                response = sock.recv(2)
-                if len(response) < 2 or response[0] != 0x05:
-                    sock.close()
-                    self.root.after(0, lambda: self.proxy_status_label.config(text="代理响应错误", foreground="red"))
-                    return
-                
-                auth_method = response[1]
-                
-                if auth_method == 0x02 and username and password:
-                    # 发送用户名/密码
-                    auth_packet = bytes([0x01, len(username)]) + username.encode() + bytes([len(password)]) + password.encode()
-                    sock.send(auth_packet)
-                    auth_response = sock.recv(2)
-                    if len(auth_response) < 2 or auth_response[1] != 0x00:
-                        sock.close()
-                        self.root.after(0, lambda: self.proxy_status_label.config(text="认证失败", foreground="red"))
-                        return
-                elif auth_method == 0xFF:
-                    sock.close()
-                    self.root.after(0, lambda: self.proxy_status_label.config(text="代理拒绝连接", foreground="red"))
-                    return
-                
-                elapsed = (time.time() - start_time) * 1000
-                sock.close()
-                
-                # 根据延迟设置颜色
-                if elapsed < 200:
-                    color = "green"
-                elif elapsed < 500:
-                    color = "orange"
-                else:
-                    color = "red"
-                
-                self.root.after(0, lambda: self.proxy_status_label.config(text=f"连接成功 ({elapsed:.0f}ms)", foreground=color))
-                
-            except socket.timeout:
-                self.root.after(0, lambda: self.proxy_status_label.config(text="连接超时", foreground="red"))
-            except ConnectionRefusedError:
-                self.root.after(0, lambda: self.proxy_status_label.config(text="连接被拒绝", foreground="red"))
-            except Exception as e:
-                self.root.after(0, lambda: self.proxy_status_label.config(text=f"错误: {str(e)[:20]}", foreground="red"))
-        
-        threading.Thread(target=do_test, daemon=True).start()
-    
-    def load_proxy_from_config(self):
-        """从配置文件加载代理设置"""
+            # 自动查找配置文件
+            dir_path = os.path.dirname(path)
+            potential_config_path = os.path.join(dir_path, "config.toml")
+            if os.path.exists(potential_config_path):
+                global config_path
+                config_path = potential_config_path
+                self.status_bar.config(text=f"已加载配置文件: {config_path}")
+                self.load_config_to_ui()
+            else:
+                messagebox.showwarning("警告", "在程序同目录下未找到 config.toml 文件。")
+
+    def load_config_to_ui(self):
+        """加载配置到设置界面"""
         global config_path
         if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
             return
-        
+
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # 解析 [telegram.proxy] 部分
             import re
-            
-            # 查找 enable
-            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
-            if enable_match:
-                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
-            
-            # 查找 url
-            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
-            if url_match:
+
+            # 加载 Telegram 设置
+            token_match = re.search(r'token\s*=\s*["\']([^"\']*)["\']', content)
+            if token_match:
+                self.token_entry.delete(0, tk.END)
+                self.token_entry.insert(0, token_match.group(1))
+
+            admins_match = re.search(r'admin_users\s*=\s*\[([^\]]*)\]', content)
+            if admins_match:
+                admins = admins_match.group(1).replace('"', '').replace("'", '').strip()
+                self.admins_entry.delete(0, tk.END)
+                self.admins_entry.insert(0, admins)
+
+            allowed_users_match = re.search(r'allowed_users\s*=\s*\[([^\]]*)\]', content)
+            if allowed_users_match:
+                allowed = allowed_users_match.group(1).replace('"', '').replace("'", '').strip()
+                self.allowed_users_entry.delete(0, tk.END)
+                self.allowed_users_entry.insert(0, allowed)
+
+            proxy_enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+            if proxy_enable_match:
+                self.proxy_enable_var.set(proxy_enable_match.group(1).lower() == 'true')
+
+            proxy_url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']*)["\']', content)
+            if proxy_url_match:
                 self.proxy_url_entry.delete(0, tk.END)
-                self.proxy_url_entry.insert(0, url_match.group(1))
-            
-            self.settings_status.config(text="代理设置已从配置文件加载", foreground="green")
-            self.log("已加载代理设置")
+                self.proxy_url_entry.insert(0, proxy_url_match.group(1))
+
+            # 加载存储设置 (第一个)
+            storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\n\[\[storages\]\]|\Z)', content)
+            if storage_match:
+                storage_block = storage_match.group(1)
+                name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if name_match: self.storage_name_entry.insert(0, name_match.group(1))
+                
+                type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if type_match: self.storage_type_var.set(type_match.group(1))
+
+                enable_match = re.search(r'enable\s*=\s*(true|false)', storage_block, re.IGNORECASE)
+                if enable_match: self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
+
+                path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if path_match: self.storage_path_entry.insert(0, path_match.group(1))
+
+                tasks_match = re.search(r'concurrent_tasks\s*=\s*(\d+)', storage_block)
+                if tasks_match: self.concurrent_tasks_entry.insert(0, tasks_match.group(1))
+
+                cache_match = re.search(r'cache_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if cache_match: self.cache_path_entry.insert(0, cache_match.group(1))
+
         except Exception as e:
-            messagebox.showerror("错误", f"加载失败: {str(e)}")
-    
-    def save_proxy_to_config(self):
-        """保存代理设置到配置文件"""
+            messagebox.showerror("错误", f"加载配置文件失败: {e}")
+
+    def save_telegram_settings(self):
+        """保存 Telegram 相关设置"""
         global config_path
         if not config_path or not os.path.exists(config_path):
             messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
             return
-        
+
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            enable = 'true' if self.proxy_enable_var.get() else 'false'
-            url = self.proxy_url_entry.get().strip()
-            
-            # 检查是否已存在 [telegram.proxy] 部分
             import re
+            token = self.token_entry.get().strip()
+            admins = self.admins_entry.get().strip()
+            allowed_users = self.allowed_users_entry.get().strip()
+            proxy_enable = 'true' if self.proxy_enable_var.get() else 'false'
+            proxy_url = self.proxy_url_entry.get().strip()
+
+            # 更新 token
+            content = re.sub(r'(token\s*=\s*)["\'][^"\']*["\']', f'\1"{token}"', content)
+            # 更新 admin_users
+            admins_formatted = ', '.join([f'"{user.strip()}"' for user in admins.split(',') if user.strip()])
+            content = re.sub(r'(admin_users\s*=\s*)\[[^\]]*\]', f'\1[{admins_formatted}]', content)
+            # 更新 allowed_users
+            allowed_formatted = ', '.join([f'"{user.strip()}"' for user in allowed_users.split(',') if user.strip()])
+            content = re.sub(r'(allowed_users\s*=\s*)\[[^\]]*\]', f'\1[{allowed_formatted}]', content)
+
+            # 更新 proxy
             if re.search(r'\[telegram\.proxy\]', content):
                 # 更新现有配置
                 content = re.sub(
                     r'(\[telegram\.proxy\][\s\S]*?enable\s*=\s*)(true|false)',
-                    f'\\1{enable}',
+                    f'\1{proxy_enable}',
                     content,
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
-                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                    f'\\1"{url}"',
+                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\'][^"\']*["\']',
+                    f'\1"{proxy_url}"',
                     content
                 )
             else:
                 # 添加新配置
-                proxy_config = f'''\n[telegram.proxy]
-# 启用代理连接 telegram
-enable = {enable}
-url = "{url}"\n'''
-                # 在 [telegram] 部分后添加
-                if '[telegram]' in content:
-                    # 找到下一个 section 或文件末尾
-                    match = re.search(r'(\[telegram\][^\[]*)', content)
-                    if match:
-                        insert_pos = match.end()
-                        content = content[:insert_pos] + proxy_config + content[insert_pos:]
-                else:
-                    content += proxy_config
-            
-            # 备份并保存
-            backup_path = config_path + ".bak"
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(open(config_path, 'r', encoding='utf-8').read())
-            
+                proxy_config = f'''
+[telegram.proxy]
+enable = {proxy_enable}
+url = "{proxy_url}"
+'''
+                content = content.replace('[telegram]', '[telegram]' + proxy_config, 1)
+
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            self.settings_status.config(text="代理设置已保存到配置文件", foreground="green")
-            self.log("已保存代理设置")
-            messagebox.showinfo("成功", "代理设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {str(e)}")
-    
-    def browse_storage_path(self):
-        """浏览选择存储路径"""
-        folder = filedialog.askdirectory(title="选择保存路径")
-        if folder:
-            self.storage_path_entry.delete(0, tk.END)
-            self.storage_path_entry.insert(0, folder.replace('/', '\\') if sys.platform == 'win32' else folder)
-    
-    def browse_cache_path(self):
-        """浏览缓存路径"""
-        path = filedialog.askdirectory(title="选择缓存目录")
-        if path:
-            self.cache_path_entry.delete(0, tk.END)
-            self.cache_path_entry.insert(0, path)
-            self.log(f"已选择缓存目录: {path}")
+            messagebox.showinfo("成功", "Telegram 设置已保存")
 
-    def load_storage_from_config(self):
-        """从配置文件加载存储设置"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            # 查找第一个 [[storages]] 部分
-            storage_match = re.search(
-                r'\[\[storages\]\][\s\S]*?name\s*=\s*["\']([^"\']+)["\'][\s\S]*?type\s*=\s*["\']([^"\']+)["\'][\s\S]*?enable\s*=\s*(true|false)[\s\S]*?base_path\s*=\s*["\']([^"\']+)["\']',
-                content,
-                re.IGNORECASE
-            )
-            
-            if storage_match:
-                self.storage_name_entry.delete(0, tk.END)
-                self.storage_name_entry.insert(0, storage_match.group(1))
-                self.storage_type_var.set(storage_match.group(2))
-                self.storage_enable_var.set(storage_match.group(3).lower() == 'true')
-                self.storage_path_entry.delete(0, tk.END)
-                self.storage_path_entry.insert(0, storage_match.group(4))
-                self.settings_status.config(text="存储设置已从配置文件加载", foreground="green")
-                self.log("已加载存储设置")
-            else:
-                messagebox.showinfo("提示", "配置文件中未找到 [[storages]] 设置")
         except Exception as e:
-            messagebox.showerror("错误", f"加载失败: {str(e)}")
-    
-    def save_storage_to_config(self):
+            messagebox.showerror("错误", f"保存失败: {e}")
+
+    def save_storage_settings(self):
         """保存存储设置到配置文件"""
         global config_path
         if not config_path or not os.path.exists(config_path):
@@ -2071,27 +880,27 @@ url = "{url}"\n'''
             if re.search(r'\[\[storages\]\]', content):
                 # 更新第一个 storages 配置
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                    f'\\1"{name}"',
+                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{name}"',
                     content,
                     count=1
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                    f'\\1"{storage_type}"',
+                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{storage_type}"',
                     content,
                     count=1
                 )
                 content = re.sub(
                     r'(\[\[storages\]\][\s\S]*?enable\s*=\s*)(true|false)',
-                    f'\\1{enable}',
+                    lambda m: f'{m.group(1)}{enable}',
                     content,
                     count=1,
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                    f'\\1"{base_path}"',
+                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{base_path}"',
                     content,
                     count=1
                 )
@@ -2099,318 +908,367 @@ url = "{url}"\n'''
                 if re.search(r'concurrent_tasks\s*=', content):
                     content = re.sub(
                         r'(concurrent_tasks\s*=\s*)\d+',
-                        f'\\1{concurrent_tasks}',
+                        lambda m: f'{m.group(1)}{concurrent_tasks}',
                         content,
                         count=1
                     )
                 else:
                     content = re.sub(
-                    r'(base_path\s*=\s*["\x27][^"\x27]*["\x27])',
-                        f'\g<1>\nconcurrent_tasks = {concurrent_tasks}',
+                        r'(base_path\s*=\s*["\'][^"\']*["\'])',
+                        lambda m: f'{m.group(1)}\nconcurrent_tasks = {concurrent_tasks}',
                         content,
                         count=1
                     )
                 # 添加或更新 cache_path
                 if re.search(r'cache_path\s*=', content):
                     content = re.sub(
-                    r'(cache_path\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                        f'\\1"{cache_path}"',
+                        r'(cache_path\s*=\s*)["\']([^"\']*)["\']',
+                        lambda m: f'{m.group(1)}"{cache_path}"',
                         content,
                         count=1
                     )
                 else:
                     content = re.sub(
                         r'(concurrent_tasks\s*=\s*\d+)',
-                        f'\g<1>\ncache_path = "{cache_path}"',
+                        lambda m: f'{m.group(1)}\ncache_path = "{cache_path}"',
                         content,
                         count=1
                     )
             else:
                 # 添加新配置
-                storage_config = f'''\n[[storages]]
+                storage_config = f'''
+[[storages]]
 name = "{name}"
 type = "{storage_type}"
 enable = {enable}
 base_path = "{base_path}"
 concurrent_tasks = {concurrent_tasks}
-cache_path = "{cache_path}"\n'''
+cache_path = "{cache_path}"
+'''
                 content += storage_config
-            
-            # 备份并保存
-            backup_path = config_path + ".bak"
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(open(config_path, 'r', encoding='utf-8').read())
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.settings_status.config(text="存储设置已保存到配置文件", foreground="green")
-            self.log("已保存存储设置（包括同时任务数和缓存路径）")
-            messagebox.showinfo("成功", "存储设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {str(e)}")
-    def load_proxy_from_config_silent(self):
-        """静默从配置文件加载代理设置"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
-            if enable_match:
-                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
-            
-            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
-            if url_match:
-                self.proxy_url_entry.delete(0, tk.END)
-                self.proxy_url_entry.insert(0, url_match.group(1))
-        except Exception:
-            pass
-    
-    def load_storage_from_config_silent(self):
-        """静默从配置文件加载存储设置"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\[\[|$)', content)
-            if storage_match:
-                storage_content = storage_match.group(1)
-                
-                name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', storage_content)
-                if name_match:
-                    self.storage_name_entry.delete(0, tk.END)
-                    self.storage_name_entry.insert(0, name_match.group(1))
-                
-                type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', storage_content)
-                if type_match:
-                    self.storage_type_var.set(type_match.group(1))
-                
-                enable_match = re.search(r'enable\s*=\s*(true|false)', storage_content, re.IGNORECASE)
-                if enable_match:
-                    self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
-                
-                path_match = re.search(r'base_path\s*=\s*["\']([^"\']+)["\']', storage_content)
-                if path_match:
-                    self.storage_path_entry.delete(0, tk.END)
-                    self.storage_path_entry.insert(0, path_match.group(1))
-        except Exception:
-            pass
-    
-    def toggle_token_visibility(self):
-        """切换 Token 显示/隐藏"""
-        current_show = self.token_entry.cget('show')
-        if current_show == '*':
-            self.token_entry.config(show='')
-        else:
-            self.token_entry.config(show='*')
-    
-    def load_token_from_config(self):
-        """从配置文件加载 Token"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            token_match = re.search(r'\[telegram\]\s*\n[^\[]*?token\s*=\s*["\x27]([^"\x27]*)["\x27]', content, re.MULTILINE)
-            if token_match:
-                self.token_entry.delete(0, tk.END)
-                self.token_entry.insert(0, token_match.group(1))
-                self.settings_status.config(text="Token 已从配置文件加载", foreground="green")
-                self.log("已加载 Telegram Token")
-            else:
-                messagebox.showinfo("提示", "配置文件中未找到 [telegram] token")
-        except Exception as e:
-            messagebox.showerror("错误", f"加载失败: {str(e)}")
-    
-    def save_token_to_config(self):
-        """保存 Token 到配置文件"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-        
-        token = self.token_entry.get().strip()
-        if not token:
-            messagebox.showwarning("警告", "请输入有效的 Token")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            
-            if re.search(r'\[telegram\]', content):
-                if re.search(r'\[telegram\]\s*\n[^\[]*?token\s*=', content, re.MULTILINE):
-                    content = re.sub(
-                        r'(\[telegram\]\s*\n[^\[]*?token\s*=\s*)["\x27]([^"\x27]*)["\x27]',
-                        f'\\1"{token}"',
-                        content,
-                        flags=re.MULTILINE
-                    )
-                else:
-                    content = re.sub(
-                        r'(\[telegram\])',
-                        f'[telegram]\ntoken = "{token}"',
-                        content,
-                        count=1
-                    )
-            else:
-                telegram_config = f'[telegram]\ntoken = "{token}"\n'
-                content += '\n' + telegram_config
-            
-            backup_path = config_path + ".bak"
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(open(config_path, 'r', encoding='utf-8').read())
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.settings_status.config(text="Token 已保存到配置文件", foreground="green")
-            self.log("已保存 Telegram Token")
-            messagebox.showinfo("成功", "Token 已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {str(e)}")
-    
-    def load_users_from_config(self):
-        """从配置文件加载用户设置"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            users_match = re.search(r'\[\[users\]\]([\s\S]*?)(?=\[\[|$)', content)
-            if users_match:
-                users_content = users_match.group(1)
-                
-                id_match = re.search(r'id\s*=\s*(\d+)', users_content)
-                if id_match:
-                    self.user_id_entry.delete(0, tk.END)
-                    self.user_id_entry.insert(0, id_match.group(1))
-                
-                blacklist_match = re.search(r'blacklist\s*=\s*(true|false)', users_content, re.IGNORECASE)
-                if blacklist_match:
-                    self.user_blacklist_var.set(blacklist_match.group(1).lower() == 'true')
-                
-                storages_match = re.search(r'storages\s*=\s*\[(.*?)\]', users_content, re.DOTALL)
-                if storages_match:
-                    storages_str = storages_match.group(1)
-                    storages = re.findall(r'["\x27]([^"\x27]+)["\x27]', storages_str)
-                    self.user_storages_entry.delete(0, tk.END)
-                    self.user_storages_entry.insert(0, ', '.join(storages))
-                
-                self.settings_status.config(text="用户设置已从配置文件加载", foreground="green")
-                self.log("已加载用户设置")
-            else:
-                messagebox.showinfo("提示", "配置文件中未找到 [[users]] 配置")
-        except Exception as e:
-            messagebox.showerror("错误", f"加载失败: {str(e)}")
-    
-    def save_users_to_config(self):
-        """保存用户设置到配置文件"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-        
-        user_id = self.user_id_entry.get().strip()
-        if not user_id or not user_id.isdigit():
-            messagebox.showwarning("警告", "请输入有效的用户 ID")
-            return
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            
-            blacklist = 'true' if self.user_blacklist_var.get() else 'false'
-            storages_str = self.user_storages_entry.get().strip()
-            storages_list = [s.strip() for s in storages_str.split(',') if s.strip()]
-            storages_array = ', '.join([f'"{s}"' for s in storages_list])
-            
-            users_config = f'[[users]]\nid = {user_id}\nstorages = [{storages_array}]\nblacklist = {blacklist}\n'
-            
-            if re.search(r'\[\[users\]\]', content):
-                content = re.sub(
-                    r'\[\[users\]\]([\s\S]*?)(?=\[\[|$)',
-                    users_config,
-                    content,
-                    count=1
-                )
-            else:
-                content += '\n' + users_config
-            
-            backup_path = config_path + ".bak"
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(open(config_path, 'r', encoding='utf-8').read())
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            self.settings_status.config(text="用户设置已保存到配置文件", foreground="green")
-            self.log("已保存用户设置")
-            messagebox.showinfo("成功", "用户设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {str(e)}")
-    
-    def on_closing(self):
-        self.running = False
-        
-        if self.web_server:
-            try:
-                self.web_server.stop()
-            except Exception:
-                pass
-        
-        if self.log_file:
-            try:
-                self.log_file.close()
-            except Exception:
-                pass
-        
-        self.root.destroy()
 
-def main():
-    root = tk.Tk()
-    
-    try:
-        from ctypes import windll
-        windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
-    
-    style = ttk.Style()
-    try:
-        style.theme_use('vista')
-    except Exception:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            messagebox.showinfo("成功", "存储设置已保存")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
+
+    def start_process(self):
+        """启动 SaveAny-Bot 进程"""
+        if self.monitoring:
+            messagebox.showinfo("提示", "监控已在运行中")
+            return
+        if not self.bot_path or not os.path.exists(self.bot_path):
+            messagebox.showerror("错误", "无效的程序路径")
+            return
+
         try:
-            style.theme_use('clam')
+            # 使用 start /b 来在后台启动，避免弹出命令行窗口
+            self.process = subprocess.Popen(f'start /b "" "{self.bot_path}"', shell=True, cwd=os.path.dirname(self.bot_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+            time.sleep(2) # 等待进程启动
+            
+            # 查找进程
+            bot_process_name = os.path.basename(self.bot_path)
+            found_p = None
+            for p in psutil.process_iter(['name', 'pid']):
+                if p.info['name'] == bot_process_name:
+                    found_p = p
+                    break
+            
+            if not found_p:
+                raise RuntimeError("启动后未能找到进程")
+
+            self.process = psutil.Process(found_p.pid)
+            self.start_time = datetime.fromtimestamp(self.process.create_time())
+            self.monitoring = True
+            self.update_button_states()
+            self.status_bar.config(text="监控已启动")
+            self.update_info()
+            
+            # 启动日志捕获
+            self.stop_log_capture.clear()
+            self.log_capture_thread = threading.Thread(target=self.capture_logs, daemon=True)
+            self.log_capture_thread.start()
+            self.process_log_queue()
+
+        except Exception as e:
+            messagebox.showerror("启动失败", str(e))
+            self.process = None
+
+    def stop_process(self):
+        """停止 SaveAny-Bot 进程"""
+        if not self.monitoring or not self.process:
+            messagebox.showinfo("提示", "程序未在运行")
+            return
+        try:
+            # 优雅地结束进程树
+            parent = self.process
+            children = parent.children(recursive=True)
+            for child in children:
+                child.terminate()
+            parent.terminate()
+            gone, alive = psutil.wait_procs([parent] + children, timeout=3)
+            for p in alive:
+                p.kill()
+            
+            self.monitoring = False
+            self.start_time = None
+            self.update_button_states()
+            self.reset_labels()
+            self.status_bar.config(text="监控已停止")
+            self.stop_log_capture.set()
+        except psutil.NoSuchProcess:
+            self.status_bar.config(text="进程已不存在")
+        except Exception as e:
+            messagebox.showerror("停止失败", str(e))
+        finally:
+            self.monitoring = False
+            self.process = None
+            self.update_button_states()
+            self.reset_labels()
+
+    def restart_process(self):
+        """重启进程"""
+        self.stop_process()
+        time.sleep(2)
+        self.start_process()
+
+    def control_process_from_web(self, action):
+        """从 Web 界面控制进程"""
+        if action == 'start':
+            if not self.monitoring:
+                self.after(0, self.start_process)
+                return "正在启动..."
+            return "已在运行中"
+        elif action == 'stop':
+            if self.monitoring:
+                self.after(0, self.stop_process)
+                return "正在停止..."
+            return "已停止"
+        elif action == 'restart':
+            self.after(0, self.restart_process)
+            return "正在重启..."
+        return "未知操作"
+
+    def update_info(self):
+        """更新监控信息"""
+        if not self.monitoring or not self.process or not self.process.is_running():
+            if self.monitoring: # 如果之前在监控，但现在进程没了
+                self.stop_process()
+            return
+
+        try:
+            with self.process.oneshot():
+                # CPU
+                cpu_percent = self.process.cpu_percent()
+                self.cpu_label.config(text=f"{cpu_percent:.1f}%")
+                self.cpu_progress['value'] = cpu_percent
+                monitor_data['cpu'] = cpu_percent
+
+                # Memory
+                mem_info = self.process.memory_info()
+                mem_mb = mem_info.rss / 1024 / 1024
+                self.memory_label.config(text=f"{mem_mb:.2f} MB")
+                mem_percent = self.process.memory_percent()
+                self.memory_progress['value'] = mem_percent
+                monitor_data['memory'] = f"{mem_mb:.2f} MB"
+                monitor_data['memory_percent'] = mem_percent
+
+                # Other info
+                num_threads = self.process.num_threads()
+                num_handles = self.process.num_handles() if sys.platform == 'win32' else 'N/A'
+                self.handles_label.config(text=f"{num_threads} / {num_handles}")
+                monitor_data['threads'] = num_threads
+                monitor_data['handles'] = num_handles
+
+                # Uptime
+                uptime = datetime.now() - self.start_time
+                uptime_str = str(uptime).split('.')[0]
+                self.uptime_label.config(text=uptime_str)
+                monitor_data['uptime'] = uptime_str
+
+            # Network
+            self.update_network_info()
+            
+            monitor_data['status'] = "运行中"
+            monitor_data['pid'] = self.process.pid
+
+        except psutil.NoSuchProcess:
+            self.stop_process()
+        except Exception as e:
+            # 记录错误但不停止监控
+            self.status_bar.config(text=f"更新信息时出错: {e}")
+
+        self.after(2000, self.update_info)
+
+    def update_network_info(self):
+        """更新网络流量信息"""
+        try:
+            # 进程网络IO
+            proc_io = self.process.io_counters()
+            total_read = proc_io.read_bytes
+            total_write = proc_io.write_bytes
+
+            if not hasattr(self, 'last_proc_io'):
+                self.last_proc_io = (total_read, total_write, time.time())
+            
+            last_read, last_write, last_time = self.last_proc_io
+            time_delta = time.time() - last_time
+
+            if time_delta > 0:
+                read_speed = (total_read - last_read) / time_delta
+                write_speed = (total_write - last_write) / time_delta
+                self.net_io_label.config(text=f"{read_speed/1024:.2f} KB/s / {write_speed/1024:.2f} KB/s")
+                monitor_data['download_speed'] = f"{read_speed/1024:.2f} KB/s"
+                monitor_data['upload_speed'] = f"{write_speed/1024:.2f} KB/s"
+
+            self.net_total_label.config(text=f"{total_read/1024/1024:.2f} MB / {total_write/1024/1024:.2f} MB")
+            monitor_data['total_download'] = f"{total_read/1024/1024:.2f} MB"
+            monitor_data['total_upload'] = f"{total_write/1024/1024:.2f} MB"
+            self.last_proc_io = (total_read, total_write, time.time())
+
+            # 系统网络IO
+            sys_io = psutil.net_io_counters()
+            total_sent = sys_io.bytes_sent
+            total_recv = sys_io.bytes_recv
+
+            if not hasattr(self, 'last_sys_io'):
+                self.last_sys_io = (total_recv, total_sent, time.time())
+
+            last_recv, last_sent, last_time_sys = self.last_sys_io
+            time_delta_sys = time.time() - last_time_sys
+
+            if time_delta_sys > 0:
+                recv_speed = (total_recv - last_recv) / time_delta_sys
+                sent_speed = (total_sent - last_sent) / time_delta_sys
+                self.sys_net_io_label.config(text=f"{recv_speed/1024:.2f} KB/s / {sent_speed/1024:.2f} KB/s")
+                monitor_data['sys_download'] = f"{recv_speed/1024:.2f} KB/s"
+                monitor_data['sys_upload'] = f"{sent_speed/1024:.2f} KB/s"
+
+            self.last_sys_io = (total_recv, total_sent, time.time())
+
         except Exception:
+            pass # 忽略网络信息更新错误
+
+    def capture_logs(self):
+        """捕获子进程的 stdout 和 stderr"""
+        for stream in [self.process.stdout, self.process.stderr]:
+            if stream:
+                threading.Thread(target=self.read_stream, args=(stream,), daemon=True).start()
+
+    def read_stream(self, stream):
+        """从流中读取日志行"""
+        while not self.stop_log_capture.is_set():
+            try:
+                line = stream.readline()
+                if not line:
+                    break
+                self.log_queue.put(line.strip())
+            except:
+                break
+
+    def process_log_queue(self):
+        """处理日志队列并更新UI"""
+        try:
+            while True:
+                line = self.log_queue.get_nowait()
+                self.log_text.config(state=tk.NORMAL)
+                self.log_text.insert(tk.END, line + '\n')
+                self.log_text.see(tk.END)
+                self.log_text.config(state=tk.DISABLED)
+                recent_logs.append(line)
+        except queue.Empty:
             pass
-    
-    app = SaveAnyMonitor(root)
-    root.mainloop()
+        finally:
+            if self.monitoring:
+                self.after(100, self.process_log_queue)
+
+    def update_button_states(self):
+        """更新按钮状态"""
+        if self.monitoring:
+            self.start_button.config(state=tk.DISABLED)
+            self.stop_button.config(state=tk.NORMAL)
+            self.restart_button.config(state=tk.NORMAL)
+            self.select_button.config(state=tk.DISABLED)
+            self.status_label.config(text="运行中", style='Running.Status.TLabel')
+            self.pid_label.config(text=str(self.process.pid))
+        else:
+            self.start_button.config(state=tk.NORMAL if self.bot_path else tk.DISABLED)
+            self.stop_button.config(state=tk.DISABLED)
+            self.restart_button.config(state=tk.DISABLED)
+            self.select_button.config(state=tk.NORMAL)
+            self.status_label.config(text="未运行", style='Stopped.Status.TLabel')
+
+    def reset_labels(self):
+        """重置监控标签"""
+        self.pid_label.config(text="-")
+        self.cpu_label.config(text="0%")
+        self.memory_label.config(text="0 MB")
+        self.uptime_label.config(text="-")
+        self.handles_label.config(text="- / -")
+        self.net_io_label.config(text="0 KB/s / 0 KB/s")
+        self.net_total_label.config(text="0 MB / 0 MB")
+        self.sys_net_io_label.config(text="0 KB/s / 0 KB/s")
+        self.cpu_progress['value'] = 0
+        self.memory_progress['value'] = 0
+        global monitor_data
+        monitor_data = {k: (0 if isinstance(v, (int, float)) else ("-" if k not in ["status", "memory", "download_speed", "upload_speed", "total_download", "total_upload", "sys_download", "sys_upload", "last_update"] else "0 MB" if "MB" in str(v) else "0 KB/s" if "KB/s" in str(v) else "" if k == "last_update" else "未运行")) for k, v in monitor_data.items()}
+
+    def start_web_server(self):
+        """启动 Web 服务器"""
+        if self.web_server_thread and self.web_server_thread.is_alive():
+            messagebox.showinfo("提示", "Web 服务已在运行")
+            return
+        try:
+            port = int(self.web_port_entry.get())
+            self.httpd = StoppableHTTPServer(("", port), MonitorHTTPHandler)
+            self.web_server_thread = threading.Thread(target=self.httpd.serve_forever_stoppable, daemon=True)
+            self.web_server_thread.start()
+            
+            ip_address = self.get_ip_address()
+            url = f"http://{ip_address}:{port}"
+            self.web_status_label.config(text=f"Web 服务运行于: {url}", foreground="green")
+            self.web_link_label.config(text=url)
+            self.web_start_button.config(state=tk.DISABLED)
+            self.web_stop_button.config(state=tk.NORMAL)
+        except Exception as e:
+            messagebox.showerror("错误", f"启动 Web 服务失败: {e}")
+
+    def stop_web_server(self):
+        """停止 Web 服务器"""
+        if self.httpd:
+            self.httpd.stop()
+            self.httpd = None
+            self.web_server_thread.join(timeout=2)
+            self.web_status_label.config(text="Web 服务未运行", foreground="red")
+            self.web_link_label.config(text="")
+            self.web_start_button.config(state=tk.NORMAL)
+            self.web_stop_button.config(state=tk.DISABLED)
+
+    def get_ip_address(self):
+        """获取本机IP地址"""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    def on_closing(self):
+        """关闭窗口时的处理"""
+        if self.monitoring:
+            if messagebox.askyesno("退出", "监控正在运行，确定要退出吗？\n这将停止 SaveAny-Bot 进程。"):
+                self.stop_process()
+                self.stop_web_server()
+                self.destroy()
+        else:
+            self.stop_web_server()
+            self.destroy()
 
 if __name__ == "__main__":
-    main()
+    app = MonitorApp()
+    app.mainloop()
