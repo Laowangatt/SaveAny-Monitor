@@ -620,6 +620,9 @@ class SaveAnyMonitor:
         self.start_monitoring()
         self.process_log_queue()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # 启动时自动检测 saveany-bot 程序
+        self.root.after(500, self.auto_detect_program)
     
     def create_widgets(self):
         self.notebook = ttk.Notebook(self.root)
@@ -1404,6 +1407,41 @@ base_path = "Z:/sp/uuu"""
                 # 如果启用了自动加载，则加载设置
                 self.auto_load_settings_on_startup()
     
+
+    def auto_detect_program(self):
+        """启动时自动检测 saveany-bot 程序"""
+        if self.target_path:
+            # 已经选择过程序，不需要再检测
+            return
+        
+        # 常见的搜索路径
+        search_paths = [
+            os.getcwd(),  # 当前工作目录
+            os.path.dirname(os.path.abspath(__file__)),  # 脚本所在目录
+            os.path.expanduser("~"),  # 用户主目录
+        ]
+        
+        # 添加子目录搜索路径
+        for base_path in list(search_paths):
+            for subdir in ["SaveAny-Bot", "saveany-bot", "bot"]:
+                search_paths.append(os.path.join(base_path, subdir))
+        
+        # 搜索 saveany-bot.exe
+        for search_path in search_paths:
+            if not os.path.exists(search_path):
+                continue
+            
+            exe_path = os.path.join(search_path, "saveany-bot.exe")
+            if os.path.exists(exe_path):
+                self.target_path = exe_path
+                self.target_process = "saveany-bot.exe"
+                self.path_label.config(text=exe_path, foreground="black")
+                self.log(f"[自动检测] 找到程序: {exe_path}")
+                self.update_config_path()
+                return
+        
+        self.log("[自动检测] 未找到 saveany-bot.exe，请手动选择")
+
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
             title="选择 SaveAny-Bot 程序",
@@ -1423,9 +1461,12 @@ base_path = "Z:/sp/uuu"""
             return
         
         if not self.target_path:
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            self.browse_exe()
-            return
+            # 尝试自动检测程序
+            self.auto_detect_program()
+            if not self.target_path:
+                messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+                self.browse_exe()
+                return
         
         if not os.path.exists(self.target_path):
             messagebox.showerror("错误", f"程序文件不存在: {self.target_path}")
