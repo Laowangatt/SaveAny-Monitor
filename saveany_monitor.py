@@ -722,7 +722,7 @@ class SaveAnyMonitor:
         path_row = ttk.Frame(control_frame)
         path_row.pack(fill=tk.X, pady=(10, 0))
         ttk.Label(path_row, text="程序路径:").pack(side=tk.LEFT)
-        self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500)
+        self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500, foreground="gray")
         self.path_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # 简要日志
@@ -1438,23 +1438,28 @@ base_path = "Z:/sp/uuu"""
     
     def auto_find_and_load_program(self):
         """Auto find and load program path"""
-        saved_path = self.load_program_path()
-        if saved_path:
-            self.target_path = saved_path
-            self.target_process = os.path.basename(saved_path)
-            self.path_label.config(text=saved_path, foreground="black")
-            self.log(f"Loaded program from settings: {saved_path}")
-            self.update_config_path()
-            return
-        
-        found_path = self.auto_find_saveany_bot()
-        if found_path:
-            self.target_path = found_path
-            self.target_process = os.path.basename(found_path)
-            self.path_label.config(text=found_path, foreground="black")
-            self.log(f"Auto found program: {found_path}")
-            self.save_program_path()
-            self.update_config_path()
+        try:
+            saved_path = self.load_program_path()
+            if saved_path:
+                self.target_path = saved_path
+                self.target_process = os.path.basename(saved_path)
+                self.path_label.config(text=saved_path, foreground="black")
+                self.log(f"Loaded program from settings: {saved_path}")
+                self.update_config_path()
+                return
+            
+            found_path = self.auto_find_saveany_bot()
+            if found_path:
+                self.target_path = found_path
+                self.target_process = os.path.basename(found_path)
+                self.path_label.config(text=found_path, foreground="black")
+                self.log(f"Auto found program: {found_path}")
+                self.save_program_path()
+                self.update_config_path()
+        except Exception as e:
+            print(f"[auto_find_and_load_program] Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
