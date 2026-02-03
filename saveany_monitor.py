@@ -580,6 +580,8 @@ class SaveAnyMonitor:
         self.create_widgets()
         # 延迟加载配置文件，确保 UI 已初始化
         self.root.after(500, self.auto_load_config)
+        # 延迟加载设置，确保配置文件已加载
+        self.root.after(1000, self.auto_load_settings_on_startup)
         self.start_monitoring()
         self.process_log_queue()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -1429,8 +1431,8 @@ base_path = "Z:/sp/uuu"""
             self.config_path_label.config(text=cfg_path, foreground="black")
             if os.path.exists(cfg_path):
                 self.load_config()
-                # 如果启用了自动加载，则加载设置
-                self.auto_load_settings_on_startup()
+                # 延迟加载设置，确保 UI 已初始化
+                self.root.after(500, self.auto_load_settings_on_startup)
     
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
