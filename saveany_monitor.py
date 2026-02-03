@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SaveAny-Bot Monitor v2.7.1
+	"SaveAny-Bot Monitor v2.7.1"
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -193,9 +193,9 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         <h1>SaveAny-Bot Monitor <span id="statusBadge" class="status-badge status-stopped">未运行</span></h1>
         
         <div class="tabs">
-            <button class="tab active" onclick="showTab(\'monitor\')">监控</button>
-            <button class="tab" onclick="showTab(\'logs\')">日志</button>
-            <button class="tab" onclick="showTab(\'config\')">配置</button>
+            <button class="tab active" onclick="showTab('monitor')">监控</button>
+            <button class="tab" onclick="showTab('logs')">日志</button>
+            <button class="tab" onclick="showTab('config')">配置</button>
         </div>
         
         <div id="monitor" class="tab-content active">
@@ -514,9 +514,7 @@ class MonitorApp(tk.Tk):
     def create_monitor_tab(self):
         """创建监控 Tab"""
         monitor_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(monitor_frame, text='状态监控')
-
-        # 进程控制框架
+        self.notebook.add(monitor_frame, text="状态监控")        # 进程控制框架
         control_frame = ttk.LabelFrame(monitor_frame, text="进程控制", padding="10")
         control_frame.pack(fill=tk.X, pady=5)
 
@@ -586,7 +584,7 @@ class MonitorApp(tk.Tk):
         """创建设置 Tab"""
         settings_frame = ttk.Frame(self.notebook, padding="10")
         settings_frame.pack(fill=tk.BOTH, expand=True)
-        self.notebook.add(settings_frame, text=\'配置编辑\')
+        self.notebook.add(settings_frame, text="配置编辑")
 
         # 创建一个子Notebook用于分类设置
         settings_notebook = ttk.Notebook(settings_frame)
@@ -594,23 +592,20 @@ class MonitorApp(tk.Tk):
 
         # Telegram 设置
         telegram_tab = ttk.Frame(settings_notebook, padding="10")
-        settings_notebook.add(telegram_tab, text='Telegram')
-        self.create_telegram_settings(telegram_tab)
+       settings_notebook.add(telegram_tab, text="Telegram")        self.create_telegram_settings(telegram_tab)
 
         # 存储设置
         storage_tab = ttk.Frame(settings_notebook, padding="10")
-        settings_notebook.add(storage_tab, text='存储')
-        self.create_storage_settings(storage_tab)
+       settings_notebook.add(storage_tab, text="存储")        self.create_storage_settings(storage_tab)
 
         # 下载设置
         downloader_tab = ttk.Frame(settings_notebook, padding="10")
-        settings_notebook.add(downloader_tab, text='下载')
+      settings_notebook.add(downloader_tab, text="下载")
         self.create_downloader_settings(downloader_tab)
 
         # 其他设置
         misc_tab = ttk.Frame(settings_notebook, padding="10")
-        settings_notebook.add(misc_tab, text='其他')
-        self.create_misc_settings(misc_tab)
+       settings_notebook.add(misc_tab, text="其他")        self.create_misc_settings(misc_tab)
 
     def create_telegram_settings(self, parent):
         """创建 Telegram 设置界面"""
@@ -694,7 +689,7 @@ class MonitorApp(tk.Tk):
         """创建日志 Tab"""
         log_frame = ttk.Frame(self.notebook, padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True)
-        self.notebook.add(log_frame, text=\'实时日志\')
+        self.notebook.add(log_frame, text="实时日志")
 
         self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, state=tk.DISABLED, font=("Consolas", 10))
         self.log_text.pack(fill=tk.BOTH, expand=True)
@@ -702,8 +697,7 @@ class MonitorApp(tk.Tk):
     def create_web_tab(self):
         """创建 Web 访问 Tab"""
         web_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(web_frame, text='Web 监控')
-
+       self.notebook.add(web_frame, text="Web 监控")
         web_control_frame = ttk.Frame(web_frame)
         web_control_frame.pack(fill=tk.X, pady=5)
 
@@ -803,6 +797,18 @@ class MonitorApp(tk.Tk):
                 self.concurrent_tasks_entry.delete(0, tk.END)
                 self.concurrent_tasks_entry.insert(0, '3')
                 self.cache_path_entry.delete(0, tk.END)
+
+            # 加载下载器设置
+            downloader_config = config.get('downloader', {})
+            self.download_path_entry.delete(0, tk.END)
+            self.download_path_entry.insert(0, downloader_config.get('download_path', ''))
+            self.max_concurrent_downloads_entry.delete(0, tk.END)
+            self.max_concurrent_downloads_entry.insert(0, str(downloader_config.get('max_concurrent_downloads', 5)))
+
+            # 加载其他设置
+            misc_config = config.get('web', {})
+            self.web_port_entry.delete(0, tk.END)
+            self.web_port_entry.insert(0, str(misc_config.get('port', 8080)))
 
         except Exception as e:
             messagebox.showerror("错误", f"加载配置文件失败: {e}")
@@ -1241,3 +1247,55 @@ class MonitorApp(tk.Tk):
 if __name__ == "__main__":
     app = MonitorApp()
     app.mainloop()
+
+    def save_downloader_settings(self):
+        """保存下载器设置到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = toml.load(f)
+
+            download_path = self.download_path_entry.get().strip()
+            max_concurrent_downloads = int(self.max_concurrent_downloads_entry.get().strip() or "5")
+
+            if 'downloader' not in config:
+                config['downloader'] = {}
+            config['downloader']['download_path'] = download_path
+            config['downloader']['max_concurrent_downloads'] = max_concurrent_downloads
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                toml.dump(config, f)
+
+            messagebox.showinfo("成功", "下载设置已保存")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
+
+    def save_misc_settings(self):
+        """保存其他设置到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = toml.load(f)
+
+            web_port = int(self.web_port_entry.get().strip() or "8080")
+
+            if 'web' not in config:
+                config['web'] = {}
+            config['web']['port'] = web_port
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                toml.dump(config, f)
+
+            messagebox.showinfo("成功", "其他设置已保存")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
