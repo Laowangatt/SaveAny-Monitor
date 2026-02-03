@@ -2254,8 +2254,7 @@ base_path = "{base_path}"\n'''
             settings_file = self.get_settings_file_path()
             auto_load = self.auto_load_config_var.get()
             
-            print(f"
-[设置文件] ===== 开始保存设置 =====")
+            print(f"\n[设置文件] ===== 开始保存设置 =====")
             print(f"[设置文件] 复选框状态: {auto_load}")
             print(f"[设置文件] 设置文件路径: {settings_file}")
             print(f"[设置文件] 设置文件是否存在: {os.path.exists(settings_file)}")
