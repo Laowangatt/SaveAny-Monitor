@@ -1309,15 +1309,15 @@ base_path = "Z:/sp/uuu"""
                                     read_speed = (io_counters.read_bytes - self.proc_last_io.read_bytes) / time_diff
                                     write_speed = (io_counters.write_bytes - self.proc_last_io.write_bytes) / time_diff
                                     
-                                    dl_speed = self.format_speed(max(0, read_speed))
-                                    ul_speed = self.format_speed(max(0, write_speed))
+                                    dl_speed = self.format_speed(max(0, write_speed))
+                                    ul_speed = self.format_speed(max(0, read_speed))
                                     self.download_label.config(text=dl_speed)
                                     self.upload_label.config(text=ul_speed)
                                     monitor_data["download_speed"] = dl_speed
                                     monitor_data["upload_speed"] = ul_speed
                             
-                            total_dl = self.format_bytes(io_counters.read_bytes)
-                            total_ul = self.format_bytes(io_counters.write_bytes)
+                            total_dl = self.format_bytes(io_counters.write_bytes)
+                            total_ul = self.format_bytes(io_counters.read_bytes)
                             self.total_download_label.config(text=total_dl)
                             self.total_upload_label.config(text=total_ul)
                             monitor_data["total_download"] = total_dl
