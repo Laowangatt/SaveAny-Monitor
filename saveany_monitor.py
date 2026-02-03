@@ -2019,13 +2019,13 @@ url = "{url}"\n'''
             if re.search(r'\[\[storages\]\]', content):
                 # 更新第一个 storages 配置
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\'][^"\']["\']',
+                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\x27]([^"\x27]*)["\x27]',
                     f'\\1"{name}"',
                     content,
                     count=1
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\'][^"\']["\']',
+                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\x27]([^"\x27]*)["\x27]',
                     f'\\1"{storage_type}"',
                     content,
                     count=1
@@ -2038,7 +2038,7 @@ url = "{url}"\n'''
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\'][^"\']["\']',
+                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\x27]([^"\x27]*)["\x27]',
                     f'\\1"{base_path}"',
                     content,
                     count=1
@@ -2053,7 +2053,7 @@ url = "{url}"\n'''
                     )
                 else:
                     content = re.sub(
-                        r'(base_path\s*=\s*["\'][^"\']["\'])',
+                    r'(base_path\s*=\s*["\x27][^"\x27]*["\x27])',
                         f'\\1\nconcurrent_tasks = {concurrent_tasks}',
                         content,
                         count=1
@@ -2061,7 +2061,7 @@ url = "{url}"\n'''
                 # 添加或更新 cache_path
                 if re.search(r'cache_path\s*=', content):
                     content = re.sub(
-                        r'(cache_path\s*=\s*)["\'][^"\']["\']',
+                    r'(cache_path\s*=\s*)["\x27]([^"\x27]*)["\x27]',
                         f'\\1"{cache_path}"',
                         content,
                         count=1
