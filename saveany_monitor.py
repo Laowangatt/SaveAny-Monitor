@@ -2290,7 +2290,7 @@ cache_path = "{cache_path}"\n'''
                 self.retry_entry.delete(0, tk.END)
                 self.retry_entry.insert(0, retry_match.group(1))
             
-            proxy_match = re.search(r'^proxy\s*=\s*["\']([^"\']*)["\'']', content, re.MULTILINE)
+            proxy_match = re.search(r'^proxy\s*=\s*["\x27]([^"\x27]*)["\'\x27]', content, re.MULTILINE)
             if proxy_match:
                 self.global_proxy_entry.delete(0, tk.END)
                 self.global_proxy_entry.insert(0, proxy_match.group(1))
@@ -2329,7 +2329,7 @@ cache_path = "{cache_path}"\n'''
                 
                 if app_hash:
                     if re.search(r'app_hash\s*=', telegram_section):
-                        telegram_section = re.sub(r'(app_hash\s*=\s*)["'][^"']*["']', f'\1"{app_hash}"', telegram_section)
+                        telegram_section = re.sub(r'(app_hash\s*=\s*)["\x27][^"\x27]*["\x27]', f'\1"{app_hash}"', telegram_section)
                     else:
                         telegram_section += f'app_hash = "{app_hash}"\n'
                 
@@ -2369,7 +2369,7 @@ cache_path = "{cache_path}"\n'''
                 self.app_id_entry.delete(0, tk.END)
                 self.app_id_entry.insert(0, app_id_match.group(1))
             
-            app_hash_match = re.search(r'\[telegram\].*?app_hash\s*=\s*["']([^"']+)["']', content, re.DOTALL)
+            app_hash_match = re.search(r'\[telegram\].*?app_hash\s*=\s*["\x27]([^"\x27]+)["\x27]', content, re.DOTALL)
             if app_hash_match:
                 self.app_hash_entry.delete(0, tk.END)
                 self.app_hash_entry.insert(0, app_hash_match.group(1))
@@ -2414,7 +2414,7 @@ cache_path = "{cache_path}"\n'''
                     if temp_section_match:
                         temp_section = temp_section_match.group(1)
                         if re.search(r'base_path\s*=', temp_section):
-                            temp_section = re.sub(r'(base_path\s*=\s*)["'][^"']*["']', f'\1"{temp_path}"', temp_section)
+                            temp_section = re.sub(r'(base_path\s*=\s*)["\x27][^"\x27]*["\x27]', f'\1"{temp_path}"', temp_section)
                         else:
                             temp_section += f'base_path = "{temp_path}"\n'
                         content = content.replace(temp_section_match.group(0), temp_section)
@@ -2444,7 +2444,7 @@ cache_path = "{cache_path}"\n'''
             if no_clean_cache_match:
                 self.no_clean_cache_var.set(no_clean_cache_match.group(1).lower() == 'true')
             
-            temp_path_match = re.search(r'\[temp\].*?base_path\s*=\s*["']([^"']+)["']', content, re.DOTALL)
+            temp_path_match = re.search(r'\[temp\].*?base_path\s*=\s*["\x27]([^"\x27]+)["\x27]', content, re.DOTALL)
             if temp_path_match:
                 self.temp_path_entry.delete(0, tk.END)
                 self.temp_path_entry.insert(0, temp_path_match.group(1))
