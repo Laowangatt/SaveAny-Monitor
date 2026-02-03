@@ -2114,17 +2114,11 @@ base_path = "{base_path}"\n'''
                     content = f.read()
                     print(f"[设置文件] 内容:\n{content}")
                     
-                    for line in f:
+                    # 使用字符串分割而不是循环读取，以便避免文件指针问题
+                    for line in content.split('\n'):
+                        line = line.strip()
                         if line.startswith('auto_load_config='):
-                            value = line.strip().split('=')[1].lower() == 'true'
-                            print(f"[设置文件] 加载 auto_load_config = {value}")
-                            return value
-                    
-                    # 如果没有找到，需要重新读取文件
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if line.startswith('auto_load_config='):
-                            value = line.strip().split('=')[1].lower() == 'true'
+                            value = line.split('=')[1].lower() == 'true'
                             print(f"[设置文件] 加载 auto_load_config = {value}")
                             return value
                 
