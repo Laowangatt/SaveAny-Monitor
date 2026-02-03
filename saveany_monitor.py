@@ -2317,6 +2317,43 @@ base_path = "{base_path}"\n'''
             traceback.print_exc()
             self.log(error_msg)
     
+    def load_auto_load_settings_now(self):
+        """立即加载配置文件中的代理和存储设置"""
+        global config_path
+        
+        if not config_path or not os.path.exists(config_path):
+            self.log("[自动加载] 配置文件不存在，无法加载")
+            return
+        
+        try:
+            self.log("[自动加载] 开始加载代理设置...")
+            self.load_proxy_from_config_silent()
+            self.log("[自动加载] 代理设置加载完成")
+            
+            self.log("[自动加载] 开始加载存储设置...")
+            self.load_storage_from_config_silent()
+            self.log("[自动加载] 存储设置加载完成")
+            
+            self.log("✅ 已从配置文件加载设置")
+        except Exception as e:
+            self.log(f"❌ 加载设置失败: {str(e)}")
+    
+    def schedule_auto_load_check(self):
+        """每30分钟检查一次配置文件并自动加载"""
+        # 30分钟 = 1800000毫秒
+        self.auto_load_timer_id = self.root.after(1800000, self.auto_load_check_and_reschedule)
+        self.log("[自动加载] 已启动定时检查（30分钟）")
+    
+    def auto_load_check_and_reschedule(self):
+        """检查配置文件并重新调度"""
+        if self.auto_load_config_var.get():
+            self.log("[自动加载] 执行定时检查...")
+            self.load_auto_load_settings_now()
+            # 重新调度
+            self.schedule_auto_load_check()
+        else:
+            self.auto_load_timer_id = None
+
     def auto_load_settings_on_startup(self):
         """启动时自动加载设置"""
         global config_path
