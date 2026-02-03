@@ -109,8 +109,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.send_config()
             elif parsed_path.path == '/api/logs':
                 self.send_logs()
-            elif parsed_path.path == '/api/tasks':
-                self.send_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -124,8 +122,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.save_config()
             elif parsed_path.path == '/api/control':
                 self.handle_control()
-            elif parsed_path.path == '/api/tasks/clear':
-                self.clear_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -180,12 +176,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .tab { padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; border-radius: 8px; color: #fff; cursor: pointer; }
         .tab.active { background: #2196f3; }
         .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .tasks-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .tasks-table th, .tasks-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .tasks-table th { background: rgba(255,255,255,0.1); font-weight: 600; }
-        .tasks-table tr:hover { background: rgba(255,255,255,0.05); }
-        .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
+        .tab-content.active { display: block; }        .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
         .task-progress-fill { height: 100%; background: linear-gradient(90deg, #00c853, #69f0ae); border-radius: 4px; transition: width 0.3s ease; }
         .task-status { padding: 4px 10px; border-radius: 12px; font-size: 0.85em; }
         .task-status.downloading { background: #2196f3; }
@@ -200,9 +191,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         <h1>SaveAny-Bot Monitor <span id="statusBadge" class="status-badge status-stopped">未运行</span></h1>
         
         <div class="tabs">
-            <button class="tab active" onclick="showTab('monitor')">监控</button>
-            <button class="tab" onclick="showTab('tasks')">下载任务</button>
-            <button class="tab" onclick="showTab('logs')">日志</button>
+            <button class="tab active" onclick="showTab('monitor')">监控</button>            <button class="tab" onclick="showTab('logs')">日志</button>
             <button class="tab" onclick="showTab('config')">配置</button>
         </div>
         
@@ -307,7 +296,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
             document.getElementById(name).classList.add('active');
             if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
-            else if (name === 'tasks') { loadTasks(); }
             else if (name === 'config') loadConfig();
         }
         
@@ -413,20 +401,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
             return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
         }
-        
-        function loadTasks() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/api/tasks', true);
-            xhr.timeout = 5000;
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText);
-                        var tbody = document.getElementById('tasksList');
-                        if (!data.tasks || data.tasks.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>';
-                            return;
-                        }
                         var html = '';
                         data.tasks.forEach(function(task) {
                             var statusClass = task.status === '下载中' ? 'downloading' : 
@@ -446,15 +420,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             };
             xhr.send();
         }
-        
-        function clearCompletedTasks() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/tasks/clear', true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    loadTasks();
-                }
             };
             xhr.send(JSON.stringify({ type: 'completed' }));
         }
@@ -636,12 +601,7 @@ class SaveAnyMonitor:
         # 日志页面
         log_frame = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(log_frame, text=" 日志 ")
-        self.create_log_tab(log_frame)
-        
-        # 下载任务页面
-        tasks_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(tasks_frame, text=" 下载任务 ")        
-        # 配置编辑页面
+        self.create_log_tab(log_frame)# 配置编辑页面
         config_frame = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(config_frame, text=" 配置编辑 ")
         self.create_config_tab(config_frame)
@@ -821,23 +781,6 @@ class SaveAnyMonitor:
         )
         self.console_log.pack(fill=tk.BOTH, expand=True)
         self.console_log.insert(tk.END, "等待 SaveAny-Bot 启动...\n提示: 请通过本监控程序的「启动进程」按钮启动 SaveAny-Bot 以捕获日志\n")
-    def refresh_tasks(self):
-        """刷新任务列表"""
-        self.update_tasks_ui()
-    
-    def clear_completed_tasks(self):
-        """清空已完成的任务"""
-        global download_tasks
-        download_tasks = {k: v for k, v in download_tasks.items() if v['status'] not in ['已完成']}
-        self.update_tasks_ui()
-    
-    def clear_all_tasks(self):
-        """清空所有任务"""
-        global download_tasks
-        if messagebox.askyesno("确认", "确定要清空所有任务记录吗？"):
-            download_tasks = {}
-            self.update_tasks_ui()
-    
     def create_config_tab(self, parent):
         info_label = ttk.Label(parent, text="编辑 SaveAny-Bot 的配置文件 (config.toml)，修改后点击保存按钮。", wraplength=650)
         info_label.pack(fill=tk.X, pady=(0, 10))
@@ -934,6 +877,24 @@ class SaveAnyMonitor:
         self.storage_path_entry.insert(0, "./downloads")
         self.storage_path_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
         ttk.Button(storage_path_row, text="浏览...", command=self.browse_storage_path).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 同时处理任务数量
+        concurrent_row = ttk.Frame(storage_frame)
+        concurrent_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(concurrent_row, text="同时任务数:", width=10).pack(side=tk.LEFT)
+        self.concurrent_tasks_entry = ttk.Entry(concurrent_row, width=10)
+        self.concurrent_tasks_entry.insert(0, "3")
+        self.concurrent_tasks_entry.pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(concurrent_row, text="(建议值: 1-10)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 下载缓存设置位置
+        cache_row = ttk.Frame(storage_frame)
+        cache_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(cache_row, text="缓存路径:", width=10).pack(side=tk.LEFT)
+        self.cache_path_entry = ttk.Entry(cache_row, width=50)
+        self.cache_path_entry.insert(0, "./cache")
+        self.cache_path_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Button(cache_row, text="浏览...", command=self.browse_cache_path).pack(side=tk.LEFT, padx=(5, 0))
         
         # 存储按钮
         storage_btn_row = ttk.Frame(storage_frame)
@@ -1160,38 +1121,6 @@ base_path = "Z:/sp/uuu"""
         if task_id in download_tasks and download_tasks[task_id]['status'] in ['已完成', '已取消', '失败']:
             del download_tasks[task_id]
             self.update_tasks_ui()
-    
-    def update_tasks_ui(self):
-        """更新任务列表 UI"""
-        global download_tasks
-        try:
-            if hasattr(self, 'tasks_tree'):
-                # 清空现有项
-                for item in self.tasks_tree.get_children():
-                    self.tasks_tree.delete(item)
-                
-                # 添加任务
-                for task_id, task in download_tasks.items():
-                    downloaded_str = self.format_bytes(task['downloaded']) if task['downloaded'] else '-'
-                    total_str = self.format_bytes(task['total']) if task['total'] else '-'
-                    progress_str = f"{task['progress']:.1f}%" if task['progress'] else '0%'
-                    
-                    self.tasks_tree.insert('', 'end', values=(
-                        task['filename'] or task['task_id'],
-                        downloaded_str,
-                        total_str,
-                        progress_str,
-                        task['status'],
-                        task['start_time']
-                    ))
-                
-                # 更新任务计数
-                if hasattr(self, 'tasks_count_label'):
-                    active_count = sum(1 for t in download_tasks.values() if t['status'] in ['处理中', '下载中'])
-                    self.tasks_count_label.config(text=f"当前任务: {len(download_tasks)} 个 (活跃: {active_count})")
-        except Exception:
-            pass
-    
     def clear_console_log(self):
         """清空控制台日志显示"""
         self.console_log.delete('1.0', tk.END)
@@ -1971,6 +1900,14 @@ url = "{url}"\n'''
             self.storage_path_entry.delete(0, tk.END)
             self.storage_path_entry.insert(0, folder.replace('/', '\\') if sys.platform == 'win32' else folder)
     
+    def browse_cache_path(self):
+        """浏览缓存路径"""
+        path = filedialog.askdirectory(title="选择缓存目录")
+        if path:
+            self.cache_path_entry.delete(0, tk.END)
+            self.cache_path_entry.insert(0, path)
+            self.log(f"已选择缓存目录: {path}")
+
     def load_storage_from_config(self):
         """从配置文件加载存储设置"""
         global config_path
