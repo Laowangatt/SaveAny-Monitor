@@ -2226,28 +2226,43 @@ base_path = "{base_path}"\n'''
         """加载自动加载设置"""
         try:
             settings_file = self.get_settings_file_path()
-            print(f"[设置文件] 检查是否存在: {os.path.exists(settings_file)}")
+            print(f"\n[设置文件] ===== 开始加载设置 =====")
+            print(f"[设置文件] 设置文件路径: {settings_file}")
+            print(f"[设置文件] 设置文件是否存在: {os.path.exists(settings_file)}")
             
             if os.path.exists(settings_file):
                 with open(settings_file, 'r', encoding='utf-8') as f:
                     content = f.read()
-                    print(f"[设置文件] 内容:\n{content}")
+                    print(f"[设置文件] 文件内容 ({len(content)} 字节): {repr(content)}")
                     
-                    # 使用字符串分割而不是循环读取，以便避免文件指针问题
-                    for line in content.split('\n'):
+                    lines = content.split('\n')
+                    print(f"[设置文件] 总行数: {len(lines)}")
+                    
+                    for i, line in enumerate(lines):
+                        original_line = line
                         line = line.strip()
+                        print(f"[设置文件] 第 {i} 行: {repr(original_line)} -> {repr(line)}")
+                        
                         if line.startswith('auto_load_config='):
-                            value = line.split('=')[1].lower() == 'true'
-                            print(f"[设置文件] 加载 auto_load_config = {value}")
-                            return value
-                
-                print("[设置文件] 未找到 auto_load_config 配置")
+                            parts = line.split('=')
+                            print(f"[设置文件] 找到 auto_load_config, parts: {parts}")
+                            if len(parts) >= 2:
+                                value_str = parts[1].lower()
+                                value = value_str == 'true'
+                                print(f"[设置文件] 值字符串: {repr(value_str)}, 结果: {value}")
+                                print(f"[设置文件] ===== 加载完成 =====")
+                                return value
+                    
+                    print("[设置文件] 未找到 auto_load_config 配置")
             else:
                 print("[设置文件] 设置文件不存在")
         except Exception as e:
             print(f"[设置文件] 加载错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        print(f"[设置文件] ===== 加载完成 =====")
         return False
-    
+
     def save_auto_load_setting(self):
         """保存自动加载设置"""
         try:
