@@ -1043,19 +1043,24 @@ class SaveAnyMonitor:
                                     read_speed = (io_counters.read_bytes - self.proc_last_io.read_bytes) / time_diff
                                     write_speed = (io_counters.write_bytes - self.proc_last_io.write_bytes) / time_diff
                                     
+                                    # 修正：read_bytes 对应下载，write_bytes 对应上传
                                     dl_speed = self.format_speed(max(0, read_speed))
                                     ul_speed = self.format_speed(max(0, write_speed))
-                                    self.download_label.config(text=dl_speed)
-                                    self.upload_label.config(text=ul_speed)
-                                    monitor_data["download_speed"] = dl_speed
-                                    monitor_data["upload_speed"] = ul_speed
+                                    
+                                    # 交换显示位置以修正显示反了的问题
+                                    self.download_label.config(text=ul_speed)
+                                    self.upload_label.config(text=dl_speed)
+                                    monitor_data["download_speed"] = ul_speed
+                                    monitor_data["upload_speed"] = dl_speed
                             
                             total_dl = self.format_bytes(io_counters.read_bytes)
                             total_ul = self.format_bytes(io_counters.write_bytes)
-                            self.total_download_label.config(text=total_dl)
-                            self.total_upload_label.config(text=total_ul)
-                            monitor_data["total_download"] = total_dl
-                            monitor_data["total_upload"] = total_ul
+                            
+                            # 交换累计显示位置
+                            self.total_download_label.config(text=total_ul)
+                            self.total_upload_label.config(text=total_dl)
+                            monitor_data["total_download"] = total_ul
+                            monitor_data["total_upload"] = total_dl
                             
                             self.proc_last_io = io_counters
                             self.proc_last_time = current_time
@@ -1079,10 +1084,12 @@ class SaveAnyMonitor:
                         
                         sys_dl = self.format_speed(max(0, download_speed))
                         sys_ul = self.format_speed(max(0, upload_speed))
-                        self.sys_download_label.config(text=sys_dl)
-                        self.sys_upload_label.config(text=sys_ul)
-                        monitor_data["sys_download"] = sys_dl
-                        monitor_data["sys_upload"] = sys_ul
+                        
+                        # 交换系统流量显示位置
+                        self.sys_download_label.config(text=sys_ul)
+                        self.sys_upload_label.config(text=sys_dl)
+                        monitor_data["sys_download"] = sys_ul
+                        monitor_data["sys_upload"] = sys_dl
                 
                 self.last_net_io = net_io
                 self.last_net_time = current_time
