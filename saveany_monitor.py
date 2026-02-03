@@ -1442,8 +1442,7 @@ base_path = "Z:/sp/uuu"""
         if saved_path:
             self.target_path = saved_path
             self.target_process = os.path.basename(saved_path)
-            if hasattr(self, 'path_label'):
-                self.path_label.config(text=saved_path)
+            self.path_label.config(text=saved_path, foreground="black")
             self.log(f"Loaded program from settings: {saved_path}")
             self.update_config_path()
             return
@@ -1452,8 +1451,7 @@ base_path = "Z:/sp/uuu"""
         if found_path:
             self.target_path = found_path
             self.target_process = os.path.basename(found_path)
-            if hasattr(self, 'path_label'):
-                self.path_label.config(text=found_path)
+            self.path_label.config(text=found_path, foreground="black")
             self.log(f"Auto found program: {found_path}")
             self.save_program_path()
             self.update_config_path()
@@ -2233,9 +2231,11 @@ base_path = "{base_path}"\n'''
             settings = {}
             if os.path.exists(settings_file):
                 with open(settings_file, 'r', encoding='utf-8') as f:
-                    for line in f:
+                    content = f.read()
+                    for line in content.split('\n'):
+                        line = line.strip()
                         if '=' in line:
-                            key, value = line.strip().split('=', 1)
+                            key, value = line.split('=', 1)
                             settings[key] = value
             
             settings['auto_load_config'] = 'true' if auto_load else 'false'
@@ -2246,6 +2246,7 @@ base_path = "{base_path}"\n'''
                     f.write(f'{key}={value}\n')
             
             print(f"[设置文件] 保存成功: {settings_file}")
+            print(f"[设置文件] 内容: {settings}")
             
             status_text = "✅ 已启用启动时自动加载" if auto_load else "❌ 已禁用启动时自动加载"
             self.settings_status.config(text=status_text, foreground="green")
