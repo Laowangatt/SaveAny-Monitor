@@ -2106,7 +2106,7 @@ url = "{url}"\n'''
                 else:
                     content = re.sub(
                     r'(base_path\s*=\s*["\x27][^"\x27]*["\x27])',
-                        f'\\1\nconcurrent_tasks = {concurrent_tasks}',
+                        f'\g<1>\nconcurrent_tasks = {concurrent_tasks}',
                         content,
                         count=1
                     )
@@ -2121,7 +2121,7 @@ url = "{url}"\n'''
                 else:
                     content = re.sub(
                         r'(concurrent_tasks\s*=\s*\d+)',
-                        f'\\1\ncache_path = "{cache_path}"',
+                        f'\g<1>\ncache_path = "{cache_path}"',
                         content,
                         count=1
                     )
