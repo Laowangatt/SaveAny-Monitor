@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-	"SaveAny-Bot Monitor v2.7.1"
+SaveAny-Bot Monitor v2.7.1
 监控 SaveAny-Bot 的运行状态、资源占用和网络流量
 支持配置文件编辑、Web 网页查看、日志捕获和下载任务列表
 针对 Windows Server 2025 优化
@@ -19,7 +19,6 @@ import json
 import socket
 import webbrowser
 import queue
-import toml
 from datetime import datetime, timedelta
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -229,9 +228,9 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             <div class="card">
                 <h2>进程控制</h2>
                 <div class="btn-group">
-                    <button class="btn btn-success" onclick="controlProcess(\'start\')">启动</button>
-                    <button class="btn btn-danger" onclick="controlProcess(\'stop\')">停止</button>
-                    <button class="btn btn-warning" onclick="controlProcess(\'restart\')">重启</button>
+                    <button class="btn btn-success" onclick="controlProcess('start')">启动</button>
+                    <button class="btn btn-danger" onclick="controlProcess('stop')">停止</button>
+                    <button class="btn btn-warning" onclick="controlProcess('restart')">重启</button>
                 </div>
             </div>
         </div>
@@ -263,12 +262,12 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         let lastTime = Date.now();
 
         function showTab(tabName) {
-            document.querySelectorAll(".tab").forEach(tab => tab.classList.remove(\'active\'));
-            document.querySelectorAll(".tab-content").forEach(content => content.style.display = \'none\');
-            document.querySelector(`button[onclick=\"showTab(\'${tabName}\')\"]`).classList.add(\'active\');
-            document.getElementById(tabName).style.display = \'block\';
-            if (tabName === \'config\') fetchConfig();
-            if (tabName === \'logs\') fetchLogs();
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(tabName).style.display = 'block';
+            if (tabName === 'config') fetchConfig();
+            if (tabName === 'logs') fetchLogs();
         }
 
         function updateStatus(data) {
@@ -276,86 +275,86 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             const timeDiff = (now - lastTime) / 1000; // in seconds
             lastTime = now;
 
-            document.getElementById(\'status\').textContent = data.status;
-            document.getElementById(\'pid\').textContent = data.pid;
-            document.getElementById(\'uptime\').textContent = data.uptime;
-            document.getElementById(\'cpu\').textContent = `${data.cpu.toFixed(1)}%`;
-            document.getElementById(\'memory\').textContent = data.memory;
-            document.getElementById(\'threads\').textContent = data.threads;
-            document.getElementById(\'handles\').textContent = data.handles;
-            document.getElementById(\'totalDownload\').textContent = data.total_download;
-            document.getElementById(\'totalUpload\').textContent = data.total_upload;
-            document.getElementById(\'sysDownload\').textContent = data.sys_download;
-            document.getElementById(\'sysUpload\').textContent = data.sys_upload;
-            document.getElementById(\'lastUpdate\').textContent = new Date().toLocaleString();
+            document.getElementById('status').textContent = data.status;
+            document.getElementById('pid').textContent = data.pid;
+            document.getElementById('uptime').textContent = data.uptime;
+            document.getElementById('cpu').textContent = `${data.cpu.toFixed(1)}%`;
+            document.getElementById('memory').textContent = data.memory;
+            document.getElementById('threads').textContent = data.threads;
+            document.getElementById('handles').textContent = data.handles;
+            document.getElementById('totalDownload').textContent = data.total_download;
+            document.getElementById('totalUpload').textContent = data.total_upload;
+            document.getElementById('sysDownload').textContent = data.sys_download;
+            document.getElementById('sysUpload').textContent = data.sys_upload;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
 
-            const statusBadge = document.getElementById(\'statusBadge\');
+            const statusBadge = document.getElementById('statusBadge');
             statusBadge.textContent = data.status;
             if (data.status === "运行中") {
-                statusBadge.className = \'status-badge status-running\';
+                statusBadge.className = 'status-badge status-running';
             } else {
-                statusBadge.className = \'status-badge status-stopped\';
+                statusBadge.className = 'status-badge status-stopped';
             }
 
-            const cpuBar = document.getElementById(\'cpuBar\');
+            const cpuBar = document.getElementById('cpuBar');
             cpuBar.style.width = `${data.cpu}%`;
-            cpuBar.className = \'progress-fill\';
-            if (data.cpu > 80) cpuBar.classList.add(\'danger\');
-            else if (data.cpu > 50) cpuBar.classList.add(\'warning\');
+            cpuBar.className = 'progress-fill';
+            if (data.cpu > 80) cpuBar.classList.add('danger');
+            else if (data.cpu > 50) cpuBar.classList.add('warning');
 
-            const memBar = document.getElementById(\'memBar\');
+            const memBar = document.getElementById('memBar');
             memBar.style.width = `${data.memory_percent}%`;
-            memBar.className = \'progress-fill\';
-            if (data.memory_percent > 80) memBar.classList.add(\'danger\');
-            else if (data.memory_percent > 50) memBar.classList.add(\'warning\');
+            memBar.className = 'progress-fill';
+            if (data.memory_percent > 80) memBar.classList.add('danger');
+            else if (data.memory_percent > 50) memBar.classList.add('warning');
         }
 
         function fetchStatus() {
-            fetch(\'/api/status\')
+            fetch('/api/status')
                 .then(response => response.json())
                 .then(data => updateStatus(data))
-                .catch(error => console.error(\'Error fetching status:\', error));
+                .catch(error => console.error('Error fetching status:', error));
         }
 
         function fetchConfig() {
-            fetch(\'/api/config\')
+            fetch('/api/config')
                 .then(response => response.text())
                 .then(text => {
-                    document.getElementById(\'configEditor\').value = text;
+                    document.getElementById('configEditor').value = text;
                 })
-                .catch(error => console.error(\'Error fetching config:\', error));
+                .catch(error => console.error('Error fetching config:', error));
         }
 
         function saveConfig() {
-            const configContent = document.getElementById(\'configEditor\').value;
-            fetch(\'/api/config\', {
-                method: \'POST\',
-                headers: { \'Content-Type\': \'text/plain\' },
+            const configContent = document.getElementById('configEditor').value;
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
                 body: configContent
             })
             .then(response => response.json())
             .then(data => {
                 alert(data.message);
-                if (data.status === \'success\') fetchConfig();
+                if (data.status === 'success') fetchConfig();
             })
-            .catch(error => console.error(\'Error saving config:\', error));
+            .catch(error => console.error('Error saving config:', error));
         }
 
         function fetchLogs() {
-            fetch(\'/api/logs\')
+            fetch('/api/logs')
                 .then(response => response.text())
                 .then(text => {
-                    const logViewer = document.getElementById(\'logViewer\');
+                    const logViewer = document.getElementById('logViewer');
                     logViewer.textContent = text;
                     logViewer.scrollTop = logViewer.scrollHeight;
                 })
-                .catch(error => console.error(\'Error fetching logs:\', error));
+                .catch(error => console.error('Error fetching logs:', error));
         }
 
         function controlProcess(action) {
-            fetch(\'/api/control\', {
-                method: \'POST\',
-                headers: { \'Content-Type\': \'application/json\' },
+            fetch('/api/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: action })
             })
             .then(response => response.json())
@@ -363,12 +362,12 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 alert(data.message);
                 fetchStatus();
             })
-            .catch(error => console.error(\'Error controlling process:\', error));
+            .catch(error => console.error('Error controlling process:', error));
         }
 
         setInterval(fetchStatus, 2000);
         setInterval(fetchLogs, 5000);
-        document.addEventListener(\'DOMContentLoaded\', () => {
+        document.addEventListener('DOMContentLoaded', () => {
             fetchStatus();
         });
     </script>
@@ -514,7 +513,9 @@ class MonitorApp(tk.Tk):
     def create_monitor_tab(self):
         """创建监控 Tab"""
         monitor_frame = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(monitor_frame, text="状态监控")        # 进程控制框架
+        self.notebook.add(monitor_frame, text='状态监控')
+
+        # 进程控制框架
         control_frame = ttk.LabelFrame(monitor_frame, text="进程控制", padding="10")
         control_frame.pack(fill=tk.X, pady=5)
 
@@ -583,8 +584,7 @@ class MonitorApp(tk.Tk):
     def create_settings_tab(self):
         """创建设置 Tab"""
         settings_frame = ttk.Frame(self.notebook, padding="10")
-        settings_frame.pack(fill=tk.BOTH, expand=True)
-        self.notebook.add(settings_frame, text="配置编辑")
+        self.notebook.add(settings_frame, text='配置编辑')
 
         # 创建一个子Notebook用于分类设置
         settings_notebook = ttk.Notebook(settings_frame)
@@ -592,25 +592,26 @@ class MonitorApp(tk.Tk):
 
         # Telegram 设置
         telegram_tab = ttk.Frame(settings_notebook, padding="10")
-       settings_notebook.add(telegram_tab, text="Telegram")        self.create_telegram_settings(telegram_tab)
+        settings_notebook.add(telegram_tab, text='Telegram')
+        self.create_telegram_settings(telegram_tab)
 
         # 存储设置
         storage_tab = ttk.Frame(settings_notebook, padding="10")
-       settings_notebook.add(storage_tab, text="存储")        self.create_storage_settings(storage_tab)
+        settings_notebook.add(storage_tab, text='存储')
+        self.create_storage_settings(storage_tab)
 
         # 下载设置
         downloader_tab = ttk.Frame(settings_notebook, padding="10")
-      settings_notebook.add(downloader_tab, text="下载")
+        settings_notebook.add(downloader_tab, text='下载')
         self.create_downloader_settings(downloader_tab)
 
         # 其他设置
         misc_tab = ttk.Frame(settings_notebook, padding="10")
-       settings_notebook.add(misc_tab, text="其他")        self.create_misc_settings(misc_tab)
+        settings_notebook.add(misc_tab, text='其他')
+        self.create_misc_settings(misc_tab)
 
     def create_telegram_settings(self, parent):
         """创建 Telegram 设置界面"""
-        parent.columnconfigure(1, weight=1)
-        for i in range(5): parent.rowconfigure(i, weight=1)
         # API Token
         ttk.Label(parent, text="Bot Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.token_entry = ttk.Entry(parent, width=50)
@@ -640,8 +641,6 @@ class MonitorApp(tk.Tk):
 
     def create_storage_settings(self, parent):
         """创建存储设置界面"""
-        parent.columnconfigure(1, weight=1)
-        for i in range(5): parent.rowconfigure(i, weight=1)
         # 仅支持第一个 [[storages]] 的编辑
         ttk.Label(parent, text="注意: 仅支持编辑第一个存储配置", foreground="blue").grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
 
@@ -664,32 +663,30 @@ class MonitorApp(tk.Tk):
 
         ttk.Label(parent, text="并发任务数 (concurrent_tasks):").grid(row=5, column=0, sticky=tk.W, pady=5)
         self.concurrent_tasks_entry = ttk.Entry(parent, width=10)
-        self.concurrent_tasks_entry.grid(row=5, column=1, sticky=tk.EW, pady=5)
+        self.concurrent_tasks_entry.grid(row=5, column=1, sticky=tk.W, pady=5)
 
         ttk.Label(parent, text="缓存路径 (cache_path):").grid(row=6, column=0, sticky=tk.W, pady=5)
         self.cache_path_entry = ttk.Entry(parent, width=40)
         self.cache_path_entry.grid(row=6, column=1, sticky=tk.EW, pady=5)
 
-        ttk.Button(parent, text="保存存储设置", command=self.save_storage_settings).grid(row=7, column=1, sticky=tk.E, pady=10)
-        ttk.Button(parent, text="删除当前存储配置", command=self.delete_storage_settings).grid(row=8, column=1, sticky=tk.E, pady=10)
+        button_frame = ttk.Frame(parent)
+        button_frame.grid(row=7, column=1, sticky=tk.E, pady=10)
+        
+        ttk.Button(button_frame, text="删除存储设置", command=self.delete_storage_settings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="保存存储设置", command=self.save_storage_settings).pack(side=tk.LEFT)
 
     def create_downloader_settings(self, parent):
         """创建下载设置界面"""
-        parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(0, weight=1)
-        ttk.Label(parent, text="下载设置正在开发中...").grid(row=0, column=0, sticky=tk.NSEW, pady=20)
+        ttk.Label(parent, text="下载设置正在开发中...").pack(pady=20)
 
     def create_misc_settings(self, parent):
         """创建其他设置界面"""
-        parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(0, weight=1)
-        ttk.Label(parent, text="其他设置正在开发中...").grid(row=0, column=0, sticky=tk.NSEW, pady=20)
+        ttk.Label(parent, text="其他设置正在开发中...").pack(pady=20)
 
     def create_log_tab(self):
         """创建日志 Tab"""
         log_frame = ttk.Frame(self.notebook, padding="10")
-        log_frame.pack(fill=tk.BOTH, expand=True)
-        self.notebook.add(log_frame, text="实时日志")
+        self.notebook.add(log_frame, text='实时日志')
 
         self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, state=tk.DISABLED, font=("Consolas", 10))
         self.log_text.pack(fill=tk.BOTH, expand=True)
@@ -697,7 +694,8 @@ class MonitorApp(tk.Tk):
     def create_web_tab(self):
         """创建 Web 访问 Tab"""
         web_frame = ttk.Frame(self.notebook, padding="10")
-       self.notebook.add(web_frame, text="Web 监控")
+        self.notebook.add(web_frame, text='Web 监控')
+
         web_control_frame = ttk.Frame(web_frame)
         web_control_frame.pack(fill=tk.X, pady=5)
 
@@ -748,67 +746,59 @@ class MonitorApp(tk.Tk):
             return
 
         try:
-            # 使用 toml 库读取配置文件
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
+                content = f.read()
             
+            import re
+
             # 加载 Telegram 设置
-            telegram_config = config.get('telegram', {})
-            self.token_entry.delete(0, tk.END)
-            self.token_entry.insert(0, telegram_config.get('token', ''))
+            token_match = re.search(r'token\s*=\s*["\']([^"\']*)["\']', content)
+            if token_match:
+                self.token_entry.delete(0, tk.END)
+                self.token_entry.insert(0, token_match.group(1))
 
-            admin_users = telegram_config.get('admin_users', [])
-            self.admins_entry.delete(0, tk.END)
-            self.admins_entry.insert(0, ", ".join(map(str, admin_users)))
+            admins_match = re.search(r'admin_users\s*=\s*\[([^\]]*)\]', content)
+            if admins_match:
+                admins = admins_match.group(1).replace('"', '').replace("'", '').strip()
+                self.admins_entry.delete(0, tk.END)
+                self.admins_entry.insert(0, admins)
 
-            allowed_users = telegram_config.get('allowed_users', [])
-            self.allowed_users_entry.delete(0, tk.END)
-            self.allowed_users_entry.insert(0, ", ".join(map(str, allowed_users)))
+            allowed_users_match = re.search(r'allowed_users\s*=\s*\[([^\]]*)\]', content)
+            if allowed_users_match:
+                allowed = allowed_users_match.group(1).replace('"', '').replace("'", '').strip()
+                self.allowed_users_entry.delete(0, tk.END)
+                self.allowed_users_entry.insert(0, allowed)
 
-            proxy_config = telegram_config.get('proxy', {})
-            self.proxy_enable_var.set(proxy_config.get('enable', False))
-            self.proxy_url_entry.delete(0, tk.END)
-            self.proxy_url_entry.insert(0, proxy_config.get('url', ''))
+            proxy_enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+            if proxy_enable_match:
+                self.proxy_enable_var.set(proxy_enable_match.group(1).lower() == 'true')
+
+            proxy_url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']*)["\']', content)
+            if proxy_url_match:
+                self.proxy_url_entry.delete(0, tk.END)
+                self.proxy_url_entry.insert(0, proxy_url_match.group(1))
 
             # 加载存储设置 (第一个)
-            if 'storages' in config and isinstance(config['storages'], list) and config['storages']:
-                storage = config['storages'][0]
-                self.storage_name_entry.delete(0, tk.END)
-                self.storage_name_entry.insert(0, storage.get('name', ''))
+            storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\n\[\[storages\]\]|\Z)', content)
+            if storage_match:
+                storage_block = storage_match.group(1)
+                name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if name_match: self.storage_name_entry.insert(0, name_match.group(1))
                 
-                self.storage_type_var.set(storage.get('type', 'local'))
+                type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if type_match: self.storage_type_var.set(type_match.group(1))
 
-                self.storage_enable_var.set(storage.get('enable', False))
+                enable_match = re.search(r'enable\s*=\s*(true|false)', storage_block, re.IGNORECASE)
+                if enable_match: self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
 
-                self.storage_path_entry.delete(0, tk.END)
-                self.storage_path_entry.insert(0, storage.get('base_path', ''))
+                path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if path_match: self.storage_path_entry.insert(0, path_match.group(1))
 
-                self.concurrent_tasks_entry.delete(0, tk.END)
-                self.concurrent_tasks_entry.insert(0, str(storage.get('concurrent_tasks', 3)))
+                tasks_match = re.search(r'concurrent_tasks\s*=\s*(\d+)', storage_block)
+                if tasks_match: self.concurrent_tasks_entry.insert(0, tasks_match.group(1))
 
-                self.cache_path_entry.delete(0, tk.END)
-                self.cache_path_entry.insert(0, storage.get('cache_path', ''))
-            else:
-                # 清空存储设置UI
-                self.storage_name_entry.delete(0, tk.END)
-                self.storage_type_var.set('local')
-                self.storage_enable_var.set(False)
-                self.storage_path_entry.delete(0, tk.END)
-                self.concurrent_tasks_entry.delete(0, tk.END)
-                self.concurrent_tasks_entry.insert(0, '3')
-                self.cache_path_entry.delete(0, tk.END)
-
-            # 加载下载器设置
-            downloader_config = config.get('downloader', {})
-            self.download_path_entry.delete(0, tk.END)
-            self.download_path_entry.insert(0, downloader_config.get('download_path', ''))
-            self.max_concurrent_downloads_entry.delete(0, tk.END)
-            self.max_concurrent_downloads_entry.insert(0, str(downloader_config.get('max_concurrent_downloads', 5)))
-
-            # 加载其他设置
-            misc_config = config.get('web', {})
-            self.web_port_entry.delete(0, tk.END)
-            self.web_port_entry.insert(0, str(misc_config.get('port', 8080)))
+                cache_match = re.search(r'cache_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                if cache_match: self.cache_path_entry.insert(0, cache_match.group(1))
 
         except Exception as e:
             messagebox.showerror("错误", f"加载配置文件失败: {e}")
@@ -821,30 +811,50 @@ class MonitorApp(tk.Tk):
             return
 
         try:
-            # 使用 toml 库读取配置文件
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
+                content = f.read()
             
+            import re
             token = self.token_entry.get().strip()
-            admins = [int(x.strip()) for x in self.admins_entry.get().split(',') if x.strip()]
-            allowed_users = [int(x.strip()) for x in self.allowed_users_entry.get().split(',') if x.strip()]
-            proxy_enable = self.proxy_enable_var.get()
+            admins = self.admins_entry.get().strip()
+            allowed_users = self.allowed_users_entry.get().strip()
+            proxy_enable = 'true' if self.proxy_enable_var.get() else 'false'
             proxy_url = self.proxy_url_entry.get().strip()
 
-            if 'telegram' not in config:
-                config['telegram'] = {}
-            config['telegram']['token'] = token
-            config['telegram']['admin_users'] = admins
-            config['telegram']['allowed_users'] = allowed_users
+            # 更新 token
+            content = re.sub(r'(token\s*=\s*)["\'][^"\']*["\']', f'\1"{token}"', content)
+            # 更新 admin_users
+            admins_formatted = ', '.join([f'"{user.strip()}"' for user in admins.split(',') if user.strip()])
+            content = re.sub(r'(admin_users\s*=\s*)\[[^\]]*\]', f'\1[{admins_formatted}]', content)
+            # 更新 allowed_users
+            allowed_formatted = ', '.join([f'"{user.strip()}"' for user in allowed_users.split(',') if user.strip()])
+            content = re.sub(r'(allowed_users\s*=\s*)\[[^\]]*\]', f'\1[{allowed_formatted}]', content)
 
-            if 'proxy' not in config['telegram']:
-                config['telegram']['proxy'] = {}
-            config['telegram']['proxy']['enable'] = proxy_enable
-            config['telegram']['proxy']['url'] = proxy_url
+            # 更新 proxy
+            if re.search(r'\[telegram\.proxy\]', content):
+                # 更新现有配置
+                content = re.sub(
+                    r'(\[telegram\.proxy\][\s\S]*?enable\s*=\s*)(true|false)',
+                    f'\1{proxy_enable}',
+                    content,
+                    flags=re.IGNORECASE
+                )
+                content = re.sub(
+                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\'][^"\']*["\']',
+                    f'\1"{proxy_url}"',
+                    content
+                )
+            else:
+                # 添加新配置
+                proxy_config = f'''
+[telegram.proxy]
+enable = {proxy_enable}
+url = "{proxy_url}"
+'''
+                content = content.replace('[telegram]', '[telegram]' + proxy_config, 1)
 
-            # 使用 toml 库写入配置文件
             with open(config_path, 'w', encoding='utf-8') as f:
-                toml.dump(config, f)
+                f.write(content)
             
             messagebox.showinfo("成功", "Telegram 设置已保存")
 
@@ -859,45 +869,90 @@ class MonitorApp(tk.Tk):
             return
         
         try:
-            # 使用 toml 库读取配置文件
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
+                content = f.read()
             
             name = self.storage_name_entry.get().strip()
             storage_type = self.storage_type_var.get()
-            enable = self.storage_enable_var.get()
+            enable = 'true' if self.storage_enable_var.get() else 'false'
             base_path = self.storage_path_entry.get().strip()
-            concurrent_tasks = int(self.concurrent_tasks_entry.get().strip() or "3")
+            concurrent_tasks = self.concurrent_tasks_entry.get().strip() or "3"
             cache_path = self.cache_path_entry.get().strip()
             
-            # 确保 storages 是一个列表
-            if 'storages' not in config or not isinstance(config['storages'], list):
-                config['storages'] = []
-
-            # 查找并更新第一个 [[storages]] 配置
-            if config['storages']:
-                storage = config['storages'][0]
-                storage['name'] = name
-                storage['type'] = storage_type
-                storage['enable'] = enable
-                storage['base_path'] = base_path
-                storage['concurrent_tasks'] = concurrent_tasks
-                storage['cache_path'] = cache_path
+            import re
+            # 检查是否已存在 [[storages]] 部分
+            if re.search(r'\[\[storages\]\]', content):
+                # 更新第一个 storages 配置
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{name}"',
+                    content,
+                    count=1
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{storage_type}"',
+                    content,
+                    count=1
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?enable\s*=\s*)(true|false)',
+                    lambda m: f'{m.group(1)}{enable}',
+                    content,
+                    count=1,
+                    flags=re.IGNORECASE
+                )
+                content = re.sub(
+                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\']([^"\']*)["\']',
+                    lambda m: f'{m.group(1)}"{base_path}"',
+                    content,
+                    count=1
+                )
+                # 添加或更新 concurrent_tasks
+                if re.search(r'concurrent_tasks\s*=', content):
+                    content = re.sub(
+                        r'(concurrent_tasks\s*=\s*)\d+',
+                        lambda m: f'{m.group(1)}{concurrent_tasks}',
+                        content,
+                        count=1
+                    )
+                else:
+                    content = re.sub(
+                        r'(base_path\s*=\s*["\'][^"\']*["\'])',
+                        lambda m: f'{m.group(1)}\nconcurrent_tasks = {concurrent_tasks}',
+                        content,
+                        count=1
+                    )
+                # 添加或更新 cache_path
+                if re.search(r'cache_path\s*=', content):
+                    content = re.sub(
+                        r'(cache_path\s*=\s*)["\']([^"\']*)["\']',
+                        lambda m: f'{m.group(1)}"{cache_path}"',
+                        content,
+                        count=1
+                    )
+                else:
+                    content = re.sub(
+                        r'(concurrent_tasks\s*=\s*\d+)',
+                        lambda m: f'{m.group(1)}\ncache_path = "{cache_path}"',
+                        content,
+                        count=1
+                    )
             else:
-                # 如果没有 [[storages]]，则添加一个新的
-                new_storage = {
-                    'name': name,
-                    'type': storage_type,
-                    'enable': enable,
-                    'base_path': base_path,
-                    'concurrent_tasks': concurrent_tasks,
-                    'cache_path': cache_path
-                }
-                config['storages'].append(new_storage)
+                # 添加新配置
+                storage_config = f'''
+[[storages]]
+name = "{name}"
+type = "{storage_type}"
+enable = {enable}
+base_path = "{base_path}"
+concurrent_tasks = {concurrent_tasks}
+cache_path = "{cache_path}"
+'''
+                content += storage_config
 
-            # 使用 toml 库写入配置文件
             with open(config_path, 'w', encoding='utf-8') as f:
-                toml.dump(config, f)
+                f.write(content)
 
             messagebox.showinfo("成功", "存储设置已保存")
 
@@ -905,27 +960,35 @@ class MonitorApp(tk.Tk):
             messagebox.showerror("错误", f"保存失败: {e}")
 
     def delete_storage_settings(self):
-        """删除第一个存储设置"""
+        """删除第一个存储配置项"""
         global config_path
         if not config_path or not os.path.exists(config_path):
             messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
             return
 
-        if not messagebox.askyesno("确认删除", "确定要删除第一个存储配置吗？此操作不可逆！"):
+        if not messagebox.askyesno("确认", "确定要删除第一个存储配置项吗？"):
             return
 
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
+                content = f.read()
+            
+            import re
+            # 匹配第一个 [[storages]] 块直到下一个 [[storages]] 或文件末尾
+            new_content = re.sub(r'\[\[storages\]\]([\s\S]*?)(?=\n\[\[storages\]\]|\Z)', '', content, count=1).strip()
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
 
-            if 'storages' in config and isinstance(config['storages'], list) and config['storages']:
-                del config['storages'][0]  # 删除第一个存储配置
-                with open(config_path, 'w', encoding='utf-8') as f:
-                    toml.dump(config, f)
-                messagebox.showinfo("成功", "第一个存储配置已删除")
-                self.load_config_to_ui() # 重新加载UI以反映变化
-            else:
-                messagebox.showinfo("提示", "没有可删除的存储配置")
+            # 清空 UI
+            self.storage_name_entry.delete(0, tk.END)
+            self.storage_type_var.set("")
+            self.storage_enable_var.set(False)
+            self.storage_path_entry.delete(0, tk.END)
+            self.concurrent_tasks_entry.delete(0, tk.END)
+            self.cache_path_entry.delete(0, tk.END)
+
+            messagebox.showinfo("成功", "存储设置已删除")
 
         except Exception as e:
             messagebox.showerror("错误", f"删除失败: {e}")
@@ -1247,55 +1310,3 @@ class MonitorApp(tk.Tk):
 if __name__ == "__main__":
     app = MonitorApp()
     app.mainloop()
-
-    def save_downloader_settings(self):
-        """保存下载器设置到配置文件"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
-
-            download_path = self.download_path_entry.get().strip()
-            max_concurrent_downloads = int(self.max_concurrent_downloads_entry.get().strip() or "5")
-
-            if 'downloader' not in config:
-                config['downloader'] = {}
-            config['downloader']['download_path'] = download_path
-            config['downloader']['max_concurrent_downloads'] = max_concurrent_downloads
-
-            with open(config_path, 'w', encoding='utf-8') as f:
-                toml.dump(config, f)
-
-            messagebox.showinfo("成功", "下载设置已保存")
-
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {e}")
-
-    def save_misc_settings(self):
-        """保存其他设置到配置文件"""
-        global config_path
-        if not config_path or not os.path.exists(config_path):
-            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
-            return
-
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = toml.load(f)
-
-            web_port = int(self.web_port_entry.get().strip() or "8080")
-
-            if 'web' not in config:
-                config['web'] = {}
-            config['web']['port'] = web_port
-
-            with open(config_path, 'w', encoding='utf-8') as f:
-                toml.dump(config, f)
-
-            messagebox.showinfo("成功", "其他设置已保存")
-
-        except Exception as e:
-            messagebox.showerror("错误", f"保存失败: {e}")
