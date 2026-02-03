@@ -816,6 +816,61 @@ class SaveAnyMonitor:
     
     def create_settings_tab(self, parent):
         """创建设置标签页 - 代理和存储设置"""
+        # Telegram Token 设置
+        token_frame = ttk.LabelFrame(parent, text="Telegram 配置 [telegram]", padding="10")
+        token_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Token 输入
+        token_row = ttk.Frame(token_frame)
+        token_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(token_row, text="Bot Token:", width=10).pack(side=tk.LEFT)
+        self.token_entry = ttk.Entry(token_row, width=60, show="*")
+        self.token_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Button(token_row, text="显示", command=self.toggle_token_visibility).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Token 说明
+        token_info_row = ttk.Frame(token_frame)
+        token_info_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(token_info_row, text="从 @BotFather 获取 Bot Token", foreground="gray", font=("Consolas", 9)).pack(side=tk.LEFT)
+        
+        # Token 按钮
+        token_btn_row = ttk.Frame(token_frame)
+        token_btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(token_btn_row, text="从配置加载", command=self.load_token_from_config).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(token_btn_row, text="保存到配置", command=self.save_token_to_config).pack(side=tk.LEFT)
+        
+        # 用户设置
+        users_frame = ttk.LabelFrame(parent, text="用户配置 [[users]]", padding="10")
+        users_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 用户 ID
+        user_id_row = ttk.Frame(users_frame)
+        user_id_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(user_id_row, text="用户 ID:", width=10).pack(side=tk.LEFT)
+        self.user_id_entry = ttk.Entry(user_id_row, width=30)
+        self.user_id_entry.insert(0, "")
+        self.user_id_entry.pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(user_id_row, text="(Telegram 账号 ID)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 黑名单模式
+        self.user_blacklist_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(users_frame, text="启用黑名单模式", variable=self.user_blacklist_var).pack(anchor=tk.W, pady=(0, 5))
+        
+        # 存储端列表
+        storage_list_row = ttk.Frame(users_frame)
+        storage_list_row.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(storage_list_row, text="存储端:", width=10).pack(side=tk.LEFT)
+        self.user_storages_entry = ttk.Entry(storage_list_row, width=50)
+        self.user_storages_entry.insert(0, "本地磁盘")
+        self.user_storages_entry.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Label(storage_list_row, text="(多个用逗号分隔)", foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 用户按钮
+        user_btn_row = ttk.Frame(users_frame)
+        user_btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(user_btn_row, text="从配置加载", command=self.load_users_from_config).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(user_btn_row, text="保存到配置", command=self.save_users_to_config).pack(side=tk.LEFT)
+        
         # 代理设置
         proxy_frame = ttk.LabelFrame(parent, text="Telegram 代理设置 [telegram.proxy]", padding="10")
         proxy_frame.pack(fill=tk.X, pady=(0, 10))
@@ -2098,6 +2153,174 @@ cache_path = "{cache_path}"\n'''
                     self.storage_path_entry.insert(0, path_match.group(1))
         except Exception:
             pass
+    
+    def toggle_token_visibility(self):
+        """切换 Token 显示/隐藏"""
+        current_show = self.token_entry.cget('show')
+        if current_show == '*':
+            self.token_entry.config(show='')
+        else:
+            self.token_entry.config(show='*')
+    
+    def load_token_from_config(self):
+        """从配置文件加载 Token"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            token_match = re.search(r'\[telegram\]\s*\n[^\[]*?token\s*=\s*["\x27]([^"\x27]*)["\x27]', content, re.MULTILINE)
+            if token_match:
+                self.token_entry.delete(0, tk.END)
+                self.token_entry.insert(0, token_match.group(1))
+                self.settings_status.config(text="Token 已从配置文件加载", foreground="green")
+                self.log("已加载 Telegram Token")
+            else:
+                messagebox.showinfo("提示", "配置文件中未找到 [telegram] token")
+        except Exception as e:
+            messagebox.showerror("错误", f"加载失败: {str(e)}")
+    
+    def save_token_to_config(self):
+        """保存 Token 到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        token = self.token_entry.get().strip()
+        if not token:
+            messagebox.showwarning("警告", "请输入有效的 Token")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            
+            if re.search(r'\[telegram\]', content):
+                if re.search(r'\[telegram\]\s*\n[^\[]*?token\s*=', content, re.MULTILINE):
+                    content = re.sub(
+                        r'(\[telegram\]\s*\n[^\[]*?token\s*=\s*)["\x27]([^"\x27]*)["\x27]',
+                        f'\\1"{token}"',
+                        content,
+                        flags=re.MULTILINE
+                    )
+                else:
+                    content = re.sub(
+                        r'(\[telegram\])',
+                        f'[telegram]\ntoken = "{token}"',
+                        content,
+                        count=1
+                    )
+            else:
+                telegram_config = f'[telegram]\ntoken = "{token}"\n'
+                content += '\n' + telegram_config
+            
+            backup_path = config_path + ".bak"
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(open(config_path, 'r', encoding='utf-8').read())
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.settings_status.config(text="Token 已保存到配置文件", foreground="green")
+            self.log("已保存 Telegram Token")
+            messagebox.showinfo("成功", "Token 已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {str(e)}")
+    
+    def load_users_from_config(self):
+        """从配置文件加载用户设置"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            users_match = re.search(r'\[\[users\]\]([\s\S]*?)(?=\[\[|$)', content)
+            if users_match:
+                users_content = users_match.group(1)
+                
+                id_match = re.search(r'id\s*=\s*(\d+)', users_content)
+                if id_match:
+                    self.user_id_entry.delete(0, tk.END)
+                    self.user_id_entry.insert(0, id_match.group(1))
+                
+                blacklist_match = re.search(r'blacklist\s*=\s*(true|false)', users_content, re.IGNORECASE)
+                if blacklist_match:
+                    self.user_blacklist_var.set(blacklist_match.group(1).lower() == 'true')
+                
+                storages_match = re.search(r'storages\s*=\s*\[(.*?)\]', users_content, re.DOTALL)
+                if storages_match:
+                    storages_str = storages_match.group(1)
+                    storages = re.findall(r'["\x27]([^"\x27]+)["\x27]', storages_str)
+                    self.user_storages_entry.delete(0, tk.END)
+                    self.user_storages_entry.insert(0, ', '.join(storages))
+                
+                self.settings_status.config(text="用户设置已从配置文件加载", foreground="green")
+                self.log("已加载用户设置")
+            else:
+                messagebox.showinfo("提示", "配置文件中未找到 [[users]] 配置")
+        except Exception as e:
+            messagebox.showerror("错误", f"加载失败: {str(e)}")
+    
+    def save_users_to_config(self):
+        """保存用户设置到配置文件"""
+        global config_path
+        if not config_path or not os.path.exists(config_path):
+            messagebox.showwarning("警告", "请先选择 SaveAny-Bot 程序路径")
+            return
+        
+        user_id = self.user_id_entry.get().strip()
+        if not user_id or not user_id.isdigit():
+            messagebox.showwarning("警告", "请输入有效的用户 ID")
+            return
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            
+            blacklist = 'true' if self.user_blacklist_var.get() else 'false'
+            storages_str = self.user_storages_entry.get().strip()
+            storages_list = [s.strip() for s in storages_str.split(',') if s.strip()]
+            storages_array = ', '.join([f'"{s}"' for s in storages_list])
+            
+            users_config = f'[[users]]\nid = {user_id}\nstorages = [{storages_array}]\nblacklist = {blacklist}\n'
+            
+            if re.search(r'\[\[users\]\]', content):
+                content = re.sub(
+                    r'\[\[users\]\]([\s\S]*?)(?=\[\[|$)',
+                    users_config,
+                    content,
+                    count=1
+                )
+            else:
+                content += '\n' + users_config
+            
+            backup_path = config_path + ".bak"
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(open(config_path, 'r', encoding='utf-8').read())
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.settings_status.config(text="用户设置已保存到配置文件", foreground="green")
+            self.log("已保存用户设置")
+            messagebox.showinfo("成功", "用户设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {str(e)}")
     
     def on_closing(self):
         self.running = False
