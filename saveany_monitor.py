@@ -816,8 +816,29 @@ class SaveAnyMonitor:
     
     def create_settings_tab(self, parent):
         """创建设置标签页 - 代理和存储设置"""
+        # 创建滚动容器
+        canvas = tk.Canvas(parent, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 鼠标滚轮支持
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
         # Telegram Token 设置
-        token_frame = ttk.LabelFrame(parent, text="Telegram 配置 [telegram]", padding="10")
+        token_frame = ttk.LabelFrame(scrollable_frame, text="Telegram 配置 [telegram]", padding="10")
         token_frame.pack(fill=tk.X, pady=(0, 10))
         
         # Token 输入
@@ -840,7 +861,7 @@ class SaveAnyMonitor:
         ttk.Button(token_btn_row, text="保存到配置", command=self.save_token_to_config).pack(side=tk.LEFT)
         
         # 用户设置
-        users_frame = ttk.LabelFrame(parent, text="用户配置 [[users]]", padding="10")
+        users_frame = ttk.LabelFrame(scrollable_frame, text="用户配置 [[users]]", padding="10")
         users_frame.pack(fill=tk.X, pady=(0, 10))
         
         # 用户 ID
@@ -872,7 +893,7 @@ class SaveAnyMonitor:
         ttk.Button(user_btn_row, text="保存到配置", command=self.save_users_to_config).pack(side=tk.LEFT)
         
         # 代理设置
-        proxy_frame = ttk.LabelFrame(parent, text="Telegram 代理设置 [telegram.proxy]", padding="10")
+        proxy_frame = ttk.LabelFrame(scrollable_frame, text="Telegram 代理设置 [telegram.proxy]", padding="10")
         proxy_frame.pack(fill=tk.X, pady=(0, 10))
         
         # 代理启用
@@ -902,7 +923,7 @@ class SaveAnyMonitor:
         ttk.Button(proxy_btn_row, text="保存到配置", command=self.save_proxy_to_config).pack(side=tk.LEFT)
         
         # 存储设置
-        storage_frame = ttk.LabelFrame(parent, text="存储设置 [[storages]]", padding="10")
+        storage_frame = ttk.LabelFrame(scrollable_frame, text="存储设置 [[storages]]", padding="10")
         storage_frame.pack(fill=tk.X, pady=(0, 10))
         
         # 存储名称
@@ -958,25 +979,56 @@ class SaveAnyMonitor:
         ttk.Button(storage_btn_row, text="保存到配置", command=self.save_storage_to_config).pack(side=tk.LEFT)
         
         # 配置格式说明
-        info_frame = ttk.LabelFrame(parent, text="配置格式说明", padding="10")
+        info_frame = ttk.LabelFrame(scrollable_frame, text="配置格式说明", padding="10")
         info_frame.pack(fill=tk.X, pady=(0, 10))
         
-        info_text = """代理配置格式:
-[telegram.proxy]
-enable = true
-url = "socks5://用户名:密码@IP:端口"
+        info_text = """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【Telegram 配置】[telegram]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GUI 项目: Bot Token 输入框 → 配置项: token
+token = "xxx" # 你的 Bot Token, 在 @BotFather 获取
 
-存储配置格式:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【代理设置】[telegram.proxy]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GUI 项目: 启用代理 → 配置项: enable
+GUI 项目: 代理地址 → 配置项: url
+# 启用代理连接 telegram
+enable = true
+url = "xxxxx"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【用户配置】[[users]]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GUI 项目: 用户 ID → 配置项: id
+GUI 项目: 存储端 → 配置项: storages
+GUI 项目: 黑名单模式 → 配置项: blacklist
+[[users]]
+id = xxx # 你的 Telegram 账号 id
+storages = []
+blacklist = true
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【存储设置】[[storages]]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GUI 项目: 存储名称 → 配置项: name
+GUI 项目: 存储类型 → 配置项: type
+GUI 项目: 启用存储 → 配置项: enable
+GUI 项目: 保存路径 → 配置项: base_path
+GUI 项目: 同时任务数 → 配置项: concurrent_tasks
+GUI 项目: 缓存路径 → 配置项: cache_path
 [[storages]]
 name = "本地磁盘"
 type = "local"
 enable = true
-base_path = "Z:/sp/uuu"""
+base_path = "xxxx"
+concurrent_tasks = x
+cache_path = "xxx"""
         info_label = ttk.Label(info_frame, text=info_text, font=("Consolas", 9), justify=tk.LEFT)
         info_label.pack(fill=tk.X)
         
         # 状态提示
-        self.settings_status = ttk.Label(parent, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
+        self.settings_status = ttk.Label(scrollable_frame, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
         self.settings_status.pack(fill=tk.X, pady=(10, 0))
     
     def create_web_tab(self, parent):
@@ -1914,7 +1966,7 @@ base_path = "Z:/sp/uuu"""
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
-                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\'][^"\']*["\']',
+                    r'(\[telegram\.proxy\][\s\S]*?url\s*=\s*)["\x27]([^"\x27]*)["\x27]',
                     f'\\1"{url}"',
                     content
                 )
