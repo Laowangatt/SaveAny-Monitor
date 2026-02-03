@@ -2143,21 +2143,40 @@ base_path = "{base_path}"\n'''
     def auto_load_settings_on_startup(self):
         """启动时自动加载设置"""
         global config_path
-        if not self.load_auto_load_setting():
+        
+        # 检查是否启用了自动加载设置
+        auto_load_enabled = self.load_auto_load_setting()
+        self.log(f"[自动加载设置] 启用状态: {auto_load_enabled}")
+        
+        if not auto_load_enabled:
+            self.log("[自动加载设置] 未启用，跳过")
             return
         
         # 检查是否有配置文件路径
-        if not config_path or not os.path.exists(config_path):
+        self.log(f"[自动加载设置] 配置文件路径: {config_path}")
+        
+        if not config_path:
+            self.log("[自动加载设置] 配置文件路径为None")
+            return
+        
+        if not os.path.exists(config_path):
+            self.log(f"[自动加载设置] 配置文件不存在: {config_path}")
             return
         
         try:
+            self.log("[自动加载设置] 开始加载代理设置...")
             # 静默加载代理设置
             self.load_proxy_from_config_silent()
+            self.log("[自动加载设置] 代理设置加载完成")
+            
+            self.log("[自动加载设置] 开始加载存储设置...")
             # 静默加载存储设置
             self.load_storage_from_config_silent()
-            self.log("已自动加载配置文件设置")
+            self.log("[自动加载设置] 存储设置加载完成")
+            
+            self.log("✅ 已自动加载配置文件设置")
         except Exception as e:
-            self.log(f"自动加载设置失败: {str(e)}")
+            self.log(f"❌ 自动加载设置失败: {str(e)}")
     
     def load_proxy_from_config_silent(self):
         """静默从配置文件加载代理设置"""
@@ -2170,16 +2189,29 @@ base_path = "{base_path}"\n'''
                 content = f.read()
             
             import re
-            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
-            if enable_match:
-                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
-            
-            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
-            if url_match:
-                self.proxy_url_entry.delete(0, tk.END)
-                self.proxy_url_entry.insert(0, url_match.group(1))
-        except Exception:
-            pass
+            # 查找 [telegram.proxy] 部分
+            proxy_section_match = re.search(r'\[telegram\.proxy\]([\s\S]*?)(?=\[|$)', content)
+            if proxy_section_match:
+                proxy_section = proxy_section_match.group(1)
+                
+                # 加载 enable 设置
+                enable_match = re.search(r'enable\s*=\s*(true|false)', proxy_section, re.IGNORECASE)
+                if enable_match:
+                    enable_value = enable_match.group(1).lower() == 'true'
+                    self.proxy_enable_var.set(enable_value)
+                    self.log(f"[代理设置] enable = {enable_value}")
+                
+                # 加载 url 设置
+                url_match = re.search(r'url\s*=\s*["\']([^"\']*)["\']\'', proxy_section)
+                if url_match:
+                    url_value = url_match.group(1)
+                    self.proxy_url_entry.delete(0, tk.END)
+                    self.proxy_url_entry.insert(0, url_value)
+                    self.log(f"[代理设置] url = {url_value}")
+            else:
+                self.log("[代理设置] 没有找到 [telegram.proxy] 部分")
+        except Exception as e:
+            self.log(f"[代理设置] 加载失败: {str(e)}")
     
     def load_storage_from_config_silent(self):
         """静默从配置文件加载存储设置"""
@@ -2192,29 +2224,45 @@ base_path = "{base_path}"\n'''
                 content = f.read()
             
             import re
+            # 查找 [[storages]] 部分
             storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\[\[|$)', content)
             if storage_match:
                 storage_content = storage_match.group(1)
+                self.log("[存储设置] 找到 [[storages]] 部分")
                 
-                name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', storage_content)
+                # 加载 name 设置
+                name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']\'', storage_content)
                 if name_match:
+                    name_value = name_match.group(1)
                     self.storage_name_entry.delete(0, tk.END)
-                    self.storage_name_entry.insert(0, name_match.group(1))
+                    self.storage_name_entry.insert(0, name_value)
+                    self.log(f"[存储设置] name = {name_value}")
                 
-                type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', storage_content)
+                # 加载 type 设置
+                type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']\'', storage_content)
                 if type_match:
-                    self.storage_type_var.set(type_match.group(1))
+                    type_value = type_match.group(1)
+                    self.storage_type_var.set(type_value)
+                    self.log(f"[存储设置] type = {type_value}")
                 
+                # 加载 enable 设置
                 enable_match = re.search(r'enable\s*=\s*(true|false)', storage_content, re.IGNORECASE)
                 if enable_match:
-                    self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
+                    enable_value = enable_match.group(1).lower() == 'true'
+                    self.storage_enable_var.set(enable_value)
+                    self.log(f"[存储设置] enable = {enable_value}")
                 
-                path_match = re.search(r'base_path\s*=\s*["\']([^"\']+)["\']', storage_content)
+                # 加载 base_path 设置
+                path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']\'', storage_content)
                 if path_match:
+                    path_value = path_match.group(1)
                     self.storage_path_entry.delete(0, tk.END)
-                    self.storage_path_entry.insert(0, path_match.group(1))
-        except Exception:
-            pass
+                    self.storage_path_entry.insert(0, path_value)
+                    self.log(f"[存储设置] base_path = {path_value}")
+            else:
+                self.log("[存储设置] 没有找到 [[storages]] 部分")
+        except Exception as e:
+            self.log(f"[存储设置] 加载失败: {str(e)}")
     
     def on_closing(self):
         self.running = False
