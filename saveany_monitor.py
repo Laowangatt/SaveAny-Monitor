@@ -2254,16 +2254,21 @@ base_path = "{base_path}"\n'''
             settings_file = self.get_settings_file_path()
             auto_load = self.auto_load_config_var.get()
             
-            print(f"[设置文件] 保存 auto_load_config = {auto_load}")
+            print(f"
+[设置文件] ===== 开始保存设置 =====")
+            print(f"[设置文件] 复选框状态: {auto_load}")
+            print(f"[设置文件] 设置文件路径: {settings_file}")
+            print(f"[设置文件] 设置文件是否存在: {os.path.exists(settings_file)}")
             
             # 读取现有设置
             settings = {}
             if os.path.exists(settings_file):
                 with open(settings_file, 'r', encoding='utf-8') as f:
                     content = f.read()
+                    print(f"[设置文件] 现有内容:\n{content}")
                     for line in content.split('\n'):
                         line = line.strip()
-                        if '=' in line:
+                        if '=' in line and not line.startswith('#'):
                             key, value = line.split('=', 1)
                             settings[key] = value
             
@@ -2274,8 +2279,13 @@ base_path = "{base_path}"\n'''
                 for key, value in settings.items():
                     f.write(f'{key}={value}\n')
             
+            # 验证保存是否成功
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                verify_content = f.read()
+                print(f"[设置文件] 验证保存后的内容:\n{verify_content}")
+            
             print(f"[设置文件] 保存成功: {settings_file}")
-            print(f"[设置文件] 内容: {settings}")
+            print(f"[设置文件] 设置字典: {settings}")
             
             status_text = "✅ 已启用启动时自动加载" if auto_load else "❌ 已禁用启动时自动加载"
             self.settings_status.config(text=status_text, foreground="green")
@@ -2284,6 +2294,8 @@ base_path = "{base_path}"\n'''
             error_msg = f"保存设置失败: {str(e)}"
             self.settings_status.config(text=error_msg, foreground="red")
             print(f"[设置文件] {error_msg}")
+            import traceback
+            traceback.print_exc()
             self.log(error_msg)
     
     def auto_load_settings_on_startup(self):
