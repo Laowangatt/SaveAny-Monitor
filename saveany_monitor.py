@@ -47,8 +47,6 @@ monitor_data = {
 config_path = None
 control_callback = None
 recent_logs = deque(maxlen=500)  # 保存最近500行日志用于Web显示
-# download_tasks = {}  # 已删除下载任务列表功能
-
 
 class StoppableHTTPServer(HTTPServer):
     """可停止的 HTTP 服务器，针对 Windows Server 优化"""
@@ -79,7 +77,6 @@ class StoppableHTTPServer(HTTPServer):
             self.socket.close()
         except Exception:
             pass
-
 
 class MonitorHTTPHandler(BaseHTTPRequestHandler):
     """HTTP 请求处理器"""
@@ -112,7 +109,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.send_config()
             elif parsed_path.path == '/api/logs':
                 self.send_logs()
-
+            elif parsed_path.path == '/api/tasks':
+                self.send_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -126,7 +124,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.save_config()
             elif parsed_path.path == '/api/control':
                 self.handle_control()
-
+            elif parsed_path.path == '/api/tasks/clear':
+                self.clear_tasks()
             else:
                 self.send_error(404, "Not Found")
         except Exception:
@@ -182,7 +181,10 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         .tab.active { background: #2196f3; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-
+        .tasks-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .tasks-table th, .tasks-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .tasks-table th { background: rgba(255,255,255,0.1); font-weight: 600; }
+        .tasks-table tr:hover { background: rgba(255,255,255,0.05); }
         .task-progress { width: 100px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
         .task-progress-fill { height: 100%; background: linear-gradient(90deg, #00c853, #69f0ae); border-radius: 4px; transition: width 0.3s ease; }
         .task-status { padding: 4px 10px; border-radius: 12px; font-size: 0.85em; }
@@ -199,6 +201,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         
         <div class="tabs">
             <button class="tab active" onclick="showTab('monitor')">监控</button>
+            <button class="tab" onclick="showTab('tasks')">下载任务</button>
             <button class="tab" onclick="showTab('logs')">日志</button>
             <button class="tab" onclick="showTab('config')">配置</button>
         </div>
@@ -241,7 +244,31 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             </div>
         </div>
         
-
+        <div id="tasks" class="tab-content">
+            <div class="card">
+                <h2>下载任务列表</h2>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadTasks()">刷新列表</button>
+                    <button class="btn btn-danger" onclick="clearCompletedTasks()">清空已完成</button>
+                </div>
+                <div id="tasksContainer">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>文件名</th>
+                                <th>已下载</th>
+                                <th>总大小</th>
+                                <th>进度</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasksList">
+                            <tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
         
         <div id="logs" class="tab-content">
             <div class="card">
@@ -280,7 +307,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
             document.getElementById(name).classList.add('active');
             if (name === 'logs') { loadLogs(); if (!logTimer) logTimer = setInterval(loadLogs, 2000); }
-
+            else if (name === 'tasks') { loadTasks(); }
             else if (name === 'config') loadConfig();
         }
         
@@ -387,7 +414,50 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
         }
         
-
+        function loadTasks() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/tasks', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        var tbody = document.getElementById('tasksList');
+                        if (!data.tasks || data.tasks.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">暂无下载任务</td></tr>';
+                            return;
+                        }
+                        var html = '';
+                        data.tasks.forEach(function(task) {
+                            var statusClass = task.status === '下载中' ? 'downloading' : 
+                                             task.status === '已完成' ? 'completed' : 
+                                             task.status === '已取消' ? 'cancelled' : 'failed';
+                            html += '<tr>';
+                            html += '<td title="' + task.filename + '">' + (task.filename.length > 30 ? task.filename.substring(0, 30) + '...' : task.filename) + '</td>';
+                            html += '<td>' + formatSize(task.downloaded || 0) + '</td>';
+                            html += '<td>' + formatSize(task.total || 0) + '</td>';
+                            html += '<td><div class="task-progress"><div class="task-progress-fill" style="width: ' + (task.progress || 0) + '%"></div></div>' + (task.progress || 0).toFixed(1) + '%</td>';
+                            html += '<td><span class="task-status ' + statusClass + '">' + task.status + '</span></td>';
+                            html += '</tr>';
+                        });
+                        tbody.innerHTML = html;
+                    } catch(e) { console.error(e); }
+                }
+            };
+            xhr.send();
+        }
+        
+        function clearCompletedTasks() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/tasks/clear', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    loadTasks();
+                }
+            };
+            xhr.send(JSON.stringify({ type: 'completed' }));
+        }
         
         updateStatus();
         setInterval(updateStatus, 1000);
@@ -432,36 +502,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
         except Exception:
             pass
-    
- # 清空已完成的任务
-            to_remove = []
-            for filename, task in download_tasks.items():
-                if clear_type == 'completed' and task.get('status') in ['已完成', '已取消', '失败']:
-                    to_remove.append(filename)
-                elif clear_type == 'all':
-                    to_remove.append(filename)
-            
-            for filename in to_remove:
-                del download_tasks[filename]
-            
-            result = {"success": True, "cleared": len(to_remove)}
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception as e:
-            result = {"success": False, "error": str(e)}
-            content = json.dumps(result, ensure_ascii=False).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.send_header('Connection', 'close')
-            self.end_headers()
-            self.wfile.write(content)
-    
     def send_config(self):
         global config_path
         result = {"success": False, "content": "", "error": ""}
@@ -539,7 +579,6 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-
 class SaveAnyMonitor:
     def __init__(self, root):
         self.root = root
@@ -578,12 +617,6 @@ class SaveAnyMonitor:
         recent_logs = deque(maxlen=500)
         
         self.create_widgets()
-        # 延迟自动查找程序，确保 UI 已初始化
-        self.root.after(300, self.auto_find_and_load_program)
-        # 延迟加载配置文件，确保 UI 已初始化
-        self.root.after(500, self.auto_load_config)
-        # 延迟加载设置，确保配置文件已加载
-        self.root.after(1000, self.auto_load_settings_on_startup)
         self.start_monitoring()
         self.process_log_queue()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -602,6 +635,9 @@ class SaveAnyMonitor:
         self.notebook.add(log_frame, text=" 日志 ")
         self.create_log_tab(log_frame)
         
+        # 下载任务页面
+        tasks_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(tasks_frame, text=" 下载任务 ")        
         # 配置编辑页面
         config_frame = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(config_frame, text=" 配置编辑 ")
@@ -722,7 +758,7 @@ class SaveAnyMonitor:
         path_row = ttk.Frame(control_frame)
         path_row.pack(fill=tk.X, pady=(10, 0))
         ttk.Label(path_row, text="程序路径:").pack(side=tk.LEFT)
-        self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500, foreground="gray")
+        self.path_label = ttk.Label(path_row, text="自动检测", wraplength=500)
         self.path_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # 简要日志
@@ -782,61 +818,6 @@ class SaveAnyMonitor:
         )
         self.console_log.pack(fill=tk.BOTH, expand=True)
         self.console_log.insert(tk.END, "等待 SaveAny-Bot 启动...\n提示: 请通过本监控程序的「启动进程」按钮启动 SaveAny-Bot 以捕获日志\n")
-    
-    def create_tasks_tab(self, parent):
-        """创建下载任务列表标签页"""
-        # 顶部信息栏
-        info_frame = ttk.Frame(parent)
-        info_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.tasks_count_label = ttk.Label(info_frame, text="当前任务: 0 个 (活跃: 0)", font=('', 10, 'bold'))
-        self.tasks_count_label.pack(side=tk.LEFT)
-        
-        # 按钮栏
-        btn_frame = ttk.Frame(parent)
-        btn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Button(btn_frame, text="刷新列表", command=self.refresh_tasks).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(btn_frame, text="清空已完成", command=self.clear_completed_tasks).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(btn_frame, text="清空全部", command=self.clear_all_tasks).pack(side=tk.LEFT)
-        
-        # 任务列表框架
-        tasks_list_frame = ttk.LabelFrame(parent, text="下载任务列表", padding="5")
-        tasks_list_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 创建 Treeview
-        columns = ('filename', 'downloaded', 'total', 'progress', 'status', 'start_time')
-        self.tasks_tree = ttk.Treeview(tasks_list_frame, columns=columns, show='headings', height=15)
-        
-        # 定义列标题
-        self.tasks_tree.heading('filename', text='文件名')
-        self.tasks_tree.heading('downloaded', text='已下载')
-        self.tasks_tree.heading('total', text='总大小')
-        self.tasks_tree.heading('progress', text='进度')
-        self.tasks_tree.heading('status', text='状态')
-        self.tasks_tree.heading('start_time', text='开始时间')
-        
-        # 定义列宽度
-        self.tasks_tree.column('filename', width=250, minwidth=150)
-        self.tasks_tree.column('downloaded', width=100, minwidth=80)
-        self.tasks_tree.column('total', width=100, minwidth=80)
-        self.tasks_tree.column('progress', width=80, minwidth=60)
-        self.tasks_tree.column('status', width=80, minwidth=60)
-        self.tasks_tree.column('start_time', width=150, minwidth=120)
-        
-        # 添加滚动条
-        scrollbar_y = ttk.Scrollbar(tasks_list_frame, orient=tk.VERTICAL, command=self.tasks_tree.yview)
-        scrollbar_x = ttk.Scrollbar(tasks_list_frame, orient=tk.HORIZONTAL, command=self.tasks_tree.xview)
-        self.tasks_tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
-        
-        # 布局
-        self.tasks_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # 底部提示
-        tip_label = ttk.Label(parent, text="提示: 任务列表通过解析 SaveAny-Bot 日志自动更新，已完成的任务将在 30 秒后自动移除", foreground="gray")
-        tip_label.pack(fill=tk.X, pady=(10, 0))
-    
     def refresh_tasks(self):
         """刷新任务列表"""
         self.update_tasks_ui()
@@ -974,20 +955,6 @@ enable = true
 base_path = "Z:/sp/uuu"""
         info_label = ttk.Label(info_frame, text=info_text, font=("Consolas", 9), justify=tk.LEFT)
         info_label.pack(fill=tk.X)
-        
-        # 启动设置
-        startup_frame = ttk.LabelFrame(parent, text="启动设置", padding="10")
-        startup_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        print(f"\n[复选框] ===== 开始初始化复选框 =====")
-        loaded_value = self.load_auto_load_setting()
-        print(f"[复选框] load_auto_load_setting() 返回值: {loaded_value}")
-        self.auto_load_config_var = tk.BooleanVar(value=loaded_value)
-        print(f"[复选框] BooleanVar 初始值: {self.auto_load_config_var.get()}")
-        ttk.Checkbutton(startup_frame, text="启动时自动从配置文件加载设置", 
-                       variable=self.auto_load_config_var,
-                       command=self.save_auto_load_setting).pack(side=tk.LEFT)
-        print(f"[复选框] ===== 复选框初始化完成 =====")
         
         # 状态提示
         self.settings_status = ttk.Label(parent, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
@@ -1342,19 +1309,15 @@ base_path = "Z:/sp/uuu"""
                                     read_speed = (io_counters.read_bytes - self.proc_last_io.read_bytes) / time_diff
                                     write_speed = (io_counters.write_bytes - self.proc_last_io.write_bytes) / time_diff
                                     
-                                    # 修复网络流量显示错误：交换上传下载显示
-                                    # write_speed 是上传速度，read_speed 是下载速度
-                                    dl_speed = self.format_speed(max(0, write_speed))
-                                    ul_speed = self.format_speed(max(0, read_speed))
+                                    dl_speed = self.format_speed(max(0, read_speed))
+                                    ul_speed = self.format_speed(max(0, write_speed))
                                     self.download_label.config(text=dl_speed)
                                     self.upload_label.config(text=ul_speed)
                                     monitor_data["download_speed"] = dl_speed
                                     monitor_data["upload_speed"] = ul_speed
                             
-                            # 修复总流量显示错误：交换上传下载显示
-                            # write_bytes 是上传总量，read_bytes 是下载总量
-                            total_dl = self.format_bytes(io_counters.write_bytes)
-                            total_ul = self.format_bytes(io_counters.read_bytes)
+                            total_dl = self.format_bytes(io_counters.read_bytes)
+                            total_ul = self.format_bytes(io_counters.write_bytes)
                             self.total_download_label.config(text=total_dl)
                             self.total_upload_label.config(text=total_ul)
                             monitor_data["total_download"] = total_dl
@@ -1438,45 +1401,19 @@ base_path = "Z:/sp/uuu"""
             self.config_path_label.config(text=cfg_path, foreground="black")
             if os.path.exists(cfg_path):
                 self.load_config()
-                # 延迟加载设置，确保 UI 已初始化
-                self.root.after(500, self.auto_load_settings_on_startup)
-    
-    def auto_find_and_load_program(self):
-        """Auto find and load program path"""
-        try:
-            saved_path = self.load_program_path()
-            if saved_path:
-                self.target_path = saved_path
-                self.target_process = os.path.basename(saved_path)
-                self.path_label.config(text=saved_path, foreground="black")
-                self.log(f"Loaded program from settings: {saved_path}")
-                self.update_config_path()
-                return
-            
-            found_path = self.auto_find_saveany_bot()
-            if found_path:
-                self.target_path = found_path
-                self.target_process = os.path.basename(found_path)
-                self.path_label.config(text=found_path, foreground="black")
-                self.log(f"Auto found program: {found_path}")
-                self.save_program_path()
-                self.update_config_path()
-        except Exception as e:
-            print(f"[auto_find_and_load_program] Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
+                # 如果启用了自动加载，则加载设置
+                self.auto_load_settings_on_startup()
     
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
             title="选择 SaveAny-Bot 程序",
-            filetypes=[("\u53ef执行\u6587\u4ef6", "*.exe"), ("\u6240\u6709\u6587\u4ef6", "*.*")]
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
         )
         if filepath:
             self.target_path = filepath
             self.target_process = os.path.basename(filepath)
             self.path_label.config(text=filepath)
             self.log(f"已选择程序: {filepath}")
-            self.save_program_path()
             self.update_config_path()
     
     def start_process(self):
@@ -1697,33 +1634,6 @@ base_path = "Z:/sp/uuu"""
     def reload_config(self):
         if messagebox.askyesno("确认", "确定要重新加载配置文件吗？\n未保存的修改将丢失。"):
             self.load_config()
-    
-    def auto_load_config(self):
-        """启动时自动加载配置文件"""
-        global config_path
-        # 尝试在常见位置查找配置文件
-        search_paths = [
-            os.path.join(os.getcwd(), "config.toml"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.toml"),
-            os.path.expanduser("~/SaveAny-Bot/config.toml"),
-            os.path.expanduser("~/config.toml"),
-        ]
-        
-        for path in search_paths:
-            if os.path.exists(path):
-                config_path = path
-                self.target_path = os.path.dirname(path)
-                if hasattr(self, 'path_label'):
-                    self.path_label.config(text=self.target_path)
-                if hasattr(self, 'config_path_label'):
-                    self.config_path_label.config(text=path, foreground="black")
-                self.load_config()
-                self.log(f"自动检测到配置文件: {path}")
-                return
-        
-        # 如果没有找到配置文件，记录日志
-        if hasattr(self, 'log'):
-            self.log("未找到配置文件，请手动选择程序或配置文件")
     
     def start_web_server(self):
         try:
@@ -2120,278 +2030,6 @@ base_path = "{base_path}"\n'''
             messagebox.showinfo("成功", "存储设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
         except Exception as e:
             messagebox.showerror("错误", f"保存失败: {str(e)}")
-    
-    def get_settings_file_path(self):
-        """获取设置文件路径"""
-        import os
-        # 使用程序所在目录存储设置
-        if getattr(sys, 'frozen', False):
-            # 打包后的 exe
-            app_dir = os.path.dirname(sys.executable)
-        else:
-            # 开发环境
-            app_dir = os.path.dirname(os.path.abspath(__file__))
-        settings_path = os.path.join(app_dir, 'monitor_settings.ini')
-        # 调试：打印设置文件路径
-        print(f"[设置文件] 路径: {settings_path}")
-        return settings_path
-    
-    def auto_find_saveany_bot(self):
-        """自动查找 saveany-bot.exe 程序"""
-        search_paths = [
-            os.path.join(os.getcwd(), "saveany-bot.exe"),
-            os.path.join(os.getcwd(), "SaveAny-Bot", "saveany-bot.exe"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "saveany-bot.exe"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "SaveAny-Bot", "saveany-bot.exe"),
-            os.path.expanduser("~/SaveAny-Bot/saveany-bot.exe"),
-            os.path.expanduser("~/saveany-bot.exe"),
-        ]
-        
-        for path in search_paths:
-            if os.path.exists(path):
-                print(f"[自动查找] 找到 saveany-bot.exe: {path}")
-                return path
-        
-        print("[自动查找] 开始递归搜索当前目录...")
-        found_path = self.search_saveany_bot_recursive(os.getcwd())
-        if found_path:
-            print(f"[自动查找] 在子目录中找到: {found_path}")
-            return found_path
-        
-        print("[自动查找] 未找到 saveany-bot.exe")
-        return None
-    
-    def search_saveany_bot_recursive(self, directory, max_depth=3, current_depth=0):
-        """递归搜索 saveany-bot.exe"""
-        if current_depth >= max_depth:
-            return None
-        
-        try:
-            for item in os.listdir(directory):
-                item_path = os.path.join(directory, item)
-                if item.lower() == "saveany-bot.exe" and os.path.isfile(item_path):
-                    return item_path
-                if os.path.isdir(item_path) and not item.startswith('.'):
-                    result = self.search_saveany_bot_recursive(item_path, max_depth, current_depth + 1)
-                    if result:
-                        return result
-        except (PermissionError, OSError):
-            pass
-        return None
-    
-    def save_program_path(self):
-        """保存程序路径到设置文件"""
-        try:
-            if not self.target_path:
-                return
-            
-            settings_file = self.get_settings_file_path()
-            
-            # 读取现有设置
-            settings = {}
-            if os.path.exists(settings_file):
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if '=' in line:
-                            key, value = line.strip().split('=', 1)
-                            settings[key] = value
-            
-            settings['program_path'] = self.target_path
-            
-            # 保存设置
-            with open(settings_file, 'w', encoding='utf-8') as f:
-                for key, value in settings.items():
-                    f.write(f'{key}={value}\n')
-            
-            print(f"[程序路径] 保存成功: {self.target_path}")
-        except Exception as e:
-            print(f"[程序路径] 保存失败: {str(e)}")
-    
-    def load_program_path(self):
-        """从设置文件加载程序路径"""
-        try:
-            settings_file = self.get_settings_file_path()
-            if os.path.exists(settings_file):
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    for line in content.split('\n'):
-                        line = line.strip()
-                        if line.startswith('program_path='):
-                            path = line.split('=', 1)[1]
-                            if os.path.exists(path):
-                                print(f"[程序路径] 从设置文件加载: {path}")
-                                return path
-                            else:
-                                print(f"[程序路径] 保存的程序不存在: {path}")
-        except Exception as e:
-            print(f"[程序路径] 加载失败: {str(e)}")
-        return None
-    
-    def load_auto_load_setting(self):
-        """加载自动加载设置"""
-        try:
-            settings_file = self.get_settings_file_path()
-            print(f"\n[设置文件] ===== 开始加载设置 =====")
-            print(f"[设置文件] 设置文件路径: {settings_file}")
-            print(f"[设置文件] 设置文件是否存在: {os.path.exists(settings_file)}")
-            
-            if os.path.exists(settings_file):
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    print(f"[设置文件] 文件内容 ({len(content)} 字节): {repr(content)}")
-                    
-                    lines = content.split('\n')
-                    print(f"[设置文件] 总行数: {len(lines)}")
-                    
-                    for i, line in enumerate(lines):
-                        original_line = line
-                        line = line.strip()
-                        print(f"[设置文件] 第 {i} 行: {repr(original_line)} -> {repr(line)}")
-                        
-                        if line.startswith('auto_load_config='):
-                            parts = line.split('=')
-                            print(f"[设置文件] 找到 auto_load_config, parts: {parts}")
-                            if len(parts) >= 2:
-                                value_str = parts[1].lower()
-                                value = value_str == 'true'
-                                print(f"[设置文件] 值字符串: {repr(value_str)}, 结果: {value}")
-                                print(f"[设置文件] ===== 加载完成 =====")
-                                return value
-                    
-                    print("[设置文件] 未找到 auto_load_config 配置")
-            else:
-                print("[设置文件] 设置文件不存在")
-        except Exception as e:
-            print(f"[设置文件] 加载错误: {str(e)}")
-            import traceback
-            traceback.print_exc()
-        print(f"[设置文件] ===== 加载完成 =====")
-        return False
-
-    def save_auto_load_setting(self):
-        """保存自动加载设置"""
-        try:
-            settings_file = self.get_settings_file_path()
-            auto_load = self.auto_load_config_var.get()
-            
-            print(f"\n[设置文件] ===== 开始保存设置 =====")
-            print(f"[设置文件] 复选框状态: {auto_load}")
-            print(f"[设置文件] 设置文件路径: {settings_file}")
-            print(f"[设置文件] 设置文件是否存在: {os.path.exists(settings_file)}")
-            
-            # 读取现有设置
-            settings = {}
-            if os.path.exists(settings_file):
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    print(f"[设置文件] 现有内容:\n{content}")
-                    for line in content.split('\n'):
-                        line = line.strip()
-                        if '=' in line and not line.startswith('#'):
-                            key, value = line.split('=', 1)
-                            settings[key] = value
-            
-            settings['auto_load_config'] = 'true' if auto_load else 'false'
-            
-            # 保存设置
-            with open(settings_file, 'w', encoding='utf-8') as f:
-                for key, value in settings.items():
-                    f.write(f'{key}={value}\n')
-            
-            # 验证保存是否成功
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                verify_content = f.read()
-                print(f"[设置文件] 验证保存后的内容:\n{verify_content}")
-            
-            print(f"[设置文件] 保存成功: {settings_file}")
-            print(f"[设置文件] 设置字典: {settings}")
-            
-            status_text = "✅ 已启用启动时自动加载" if auto_load else "❌ 已禁用启动时自动加载"
-            self.settings_status.config(text=status_text, foreground="green")
-            self.log(status_text)
-        except Exception as e:
-            error_msg = f"保存设置失败: {str(e)}"
-            self.settings_status.config(text=error_msg, foreground="red")
-            print(f"[设置文件] {error_msg}")
-            import traceback
-            traceback.print_exc()
-            self.log(error_msg)
-    
-    def load_auto_load_settings_now(self):
-        """立即加载配置文件中的代理和存储设置"""
-        global config_path
-        
-        if not config_path or not os.path.exists(config_path):
-            self.log("[自动加载] 配置文件不存在，无法加载")
-            return
-        
-        try:
-            self.log("[自动加载] 开始加载代理设置...")
-            self.load_proxy_from_config_silent()
-            self.log("[自动加载] 代理设置加载完成")
-            
-            self.log("[自动加载] 开始加载存储设置...")
-            self.load_storage_from_config_silent()
-            self.log("[自动加载] 存储设置加载完成")
-            
-            self.log("✅ 已从配置文件加载设置")
-        except Exception as e:
-            self.log(f"❌ 加载设置失败: {str(e)}")
-    
-    def schedule_auto_load_check(self):
-        """每30分钟检查一次配置文件并自动加载"""
-        # 30分钟 = 1800000毫秒
-        self.auto_load_timer_id = self.root.after(1800000, self.auto_load_check_and_reschedule)
-        self.log("[自动加载] 已启动定时检查（30分钟）")
-    
-    def auto_load_check_and_reschedule(self):
-        """检查配置文件并重新调度"""
-        if self.auto_load_config_var.get():
-            self.log("[自动加载] 执行定时检查...")
-            self.load_auto_load_settings_now()
-            # 重新调度
-            self.schedule_auto_load_check()
-        else:
-            self.auto_load_timer_id = None
-
-    def auto_load_settings_on_startup(self):
-        """启动时自动加载设置"""
-        global config_path
-        
-        # 检查是否启用了自动加载设置
-        auto_load_enabled = self.load_auto_load_setting()
-        self.log(f"[自动加载设置] 启用状态: {auto_load_enabled}")
-        
-        if not auto_load_enabled:
-            self.log("[自动加载设置] 未启用，跳过")
-            return
-        
-        # 检查是否有配置文件路径
-        self.log(f"[自动加载设置] 配置文件路径: {config_path}")
-        
-        if not config_path:
-            self.log("[自动加载设置] 配置文件路径为None")
-            return
-        
-        if not os.path.exists(config_path):
-            self.log(f"[自动加载设置] 配置文件不存在: {config_path}")
-            return
-        
-        try:
-            self.log("[自动加载设置] 开始加载代理设置...")
-            # 静默加载代理设置
-            self.load_proxy_from_config_silent()
-            self.log("[自动加载设置] 代理设置加载完成")
-            
-            self.log("[自动加载设置] 开始加载存储设置...")
-            # 静默加载存储设置
-            self.load_storage_from_config_silent()
-            self.log("[自动加载设置] 存储设置加载完成")
-            
-            self.log("✅ 已自动加载配置文件设置")
-        except Exception as e:
-            self.log(f"❌ 自动加载设置失败: {str(e)}")
-    
     def load_proxy_from_config_silent(self):
         """静默从配置文件加载代理设置"""
         global config_path
@@ -2403,29 +2041,16 @@ base_path = "{base_path}"\n'''
                 content = f.read()
             
             import re
-            # 查找 [telegram.proxy] 部分
-            proxy_section_match = re.search(r'\[telegram\.proxy\]([\s\S]*?)(?=\[|$)', content)
-            if proxy_section_match:
-                proxy_section = proxy_section_match.group(1)
-                
-                # 加载 enable 设置
-                enable_match = re.search(r'enable\s*=\s*(true|false)', proxy_section, re.IGNORECASE)
-                if enable_match:
-                    enable_value = enable_match.group(1).lower() == 'true'
-                    self.proxy_enable_var.set(enable_value)
-                    self.log(f"[代理设置] enable = {enable_value}")
-                
-                # 加载 url 设置
-                url_match = re.search(r'url\s*=\s*["\']([^"\']*)["\']\'', proxy_section)
-                if url_match:
-                    url_value = url_match.group(1)
-                    self.proxy_url_entry.delete(0, tk.END)
-                    self.proxy_url_entry.insert(0, url_value)
-                    self.log(f"[代理设置] url = {url_value}")
-            else:
-                self.log("[代理设置] 没有找到 [telegram.proxy] 部分")
-        except Exception as e:
-            self.log(f"[代理设置] 加载失败: {str(e)}")
+            enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+            if enable_match:
+                self.proxy_enable_var.set(enable_match.group(1).lower() == 'true')
+            
+            url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']+)["\']', content)
+            if url_match:
+                self.proxy_url_entry.delete(0, tk.END)
+                self.proxy_url_entry.insert(0, url_match.group(1))
+        except Exception:
+            pass
     
     def load_storage_from_config_silent(self):
         """静默从配置文件加载存储设置"""
@@ -2438,45 +2063,29 @@ base_path = "{base_path}"\n'''
                 content = f.read()
             
             import re
-            # 查找 [[storages]] 部分
             storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\[\[|$)', content)
             if storage_match:
                 storage_content = storage_match.group(1)
-                self.log("[存储设置] 找到 [[storages]] 部分")
                 
-                # 加载 name 设置
-                name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']\'', storage_content)
+                name_match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', storage_content)
                 if name_match:
-                    name_value = name_match.group(1)
                     self.storage_name_entry.delete(0, tk.END)
-                    self.storage_name_entry.insert(0, name_value)
-                    self.log(f"[存储设置] name = {name_value}")
+                    self.storage_name_entry.insert(0, name_match.group(1))
                 
-                # 加载 type 设置
-                type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']\'', storage_content)
+                type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', storage_content)
                 if type_match:
-                    type_value = type_match.group(1)
-                    self.storage_type_var.set(type_value)
-                    self.log(f"[存储设置] type = {type_value}")
+                    self.storage_type_var.set(type_match.group(1))
                 
-                # 加载 enable 设置
                 enable_match = re.search(r'enable\s*=\s*(true|false)', storage_content, re.IGNORECASE)
                 if enable_match:
-                    enable_value = enable_match.group(1).lower() == 'true'
-                    self.storage_enable_var.set(enable_value)
-                    self.log(f"[存储设置] enable = {enable_value}")
+                    self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
                 
-                # 加载 base_path 设置
-                path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']\'', storage_content)
+                path_match = re.search(r'base_path\s*=\s*["\']([^"\']+)["\']', storage_content)
                 if path_match:
-                    path_value = path_match.group(1)
                     self.storage_path_entry.delete(0, tk.END)
-                    self.storage_path_entry.insert(0, path_value)
-                    self.log(f"[存储设置] base_path = {path_value}")
-            else:
-                self.log("[存储设置] 没有找到 [[storages]] 部分")
-        except Exception as e:
-            self.log(f"[存储设置] 加载失败: {str(e)}")
+                    self.storage_path_entry.insert(0, path_match.group(1))
+        except Exception:
+            pass
     
     def on_closing(self):
         self.running = False
@@ -2494,7 +2103,6 @@ base_path = "{base_path}"\n'''
                 pass
         
         self.root.destroy()
-
 
 def main():
     root = tk.Tk()
@@ -2516,7 +2124,6 @@ def main():
     
     app = SaveAnyMonitor(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
