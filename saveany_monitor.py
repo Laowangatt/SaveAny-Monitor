@@ -578,6 +578,8 @@ class SaveAnyMonitor:
         recent_logs = deque(maxlen=500)
         
         self.create_widgets()
+        # 延迟自动查找程序，确保 UI 已初始化
+        self.root.after(300, self.auto_find_and_load_program)
         # 延迟加载配置文件，确保 UI 已初始化
         self.root.after(500, self.auto_load_config)
         # 延迟加载设置，确保配置文件已加载
@@ -1434,16 +1436,39 @@ base_path = "Z:/sp/uuu"""
                 # 延迟加载设置，确保 UI 已初始化
                 self.root.after(500, self.auto_load_settings_on_startup)
     
+    def auto_find_and_load_program(self):
+        """Auto find and load program path"""
+        saved_path = self.load_program_path()
+        if saved_path:
+            self.target_path = saved_path
+            self.target_process = os.path.basename(saved_path)
+            if hasattr(self, 'path_label'):
+                self.path_label.config(text=saved_path)
+            self.log(f"Loaded program from settings: {saved_path}")
+            self.update_config_path()
+            return
+        
+        found_path = self.auto_find_saveany_bot()
+        if found_path:
+            self.target_path = found_path
+            self.target_process = os.path.basename(found_path)
+            if hasattr(self, 'path_label'):
+                self.path_label.config(text=found_path)
+            self.log(f"Auto found program: {found_path}")
+            self.save_program_path()
+            self.update_config_path()
+    
     def browse_exe(self):
         filepath = filedialog.askopenfilename(
             title="选择 SaveAny-Bot 程序",
-            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
+            filetypes=[("\u53ef执行\u6587\u4ef6", "*.exe"), ("\u6240\u6709\u6587\u4ef6", "*.*")]
         )
         if filepath:
             self.target_path = filepath
             self.target_process = os.path.basename(filepath)
             self.path_label.config(text=filepath)
             self.log(f"已选择程序: {filepath}")
+            self.save_program_path()
             self.update_config_path()
     
     def start_process(self):
@@ -2102,6 +2127,73 @@ base_path = "{base_path}"\n'''
         # 调试：打印设置文件路径
         print(f"[设置文件] 路径: {settings_path}")
         return settings_path
+    
+    def auto_find_saveany_bot(self):
+        """自动查找 saveany-bot.exe 程序"""
+        search_paths = [
+            os.path.join(os.getcwd(), "saveany-bot.exe"),
+            os.path.join(os.getcwd(), "SaveAny-Bot", "saveany-bot.exe"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "saveany-bot.exe"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "SaveAny-Bot", "saveany-bot.exe"),
+            os.path.expanduser("~/SaveAny-Bot/saveany-bot.exe"),
+            os.path.expanduser("~/saveany-bot.exe"),
+        ]
+        
+        for path in search_paths:
+            if os.path.exists(path):
+                print(f"[自动查找] 找到 saveany-bot.exe: {path}")
+                return path
+        
+        print("[自动查找] 未找到 saveany-bot.exe")
+        return None
+    
+    def save_program_path(self):
+        """保存程序路径到设置文件"""
+        try:
+            if not self.target_path:
+                return
+            
+            settings_file = self.get_settings_file_path()
+            
+            # 读取现有设置
+            settings = {}
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            settings[key] = value
+            
+            settings['program_path'] = self.target_path
+            
+            # 保存设置
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                for key, value in settings.items():
+                    f.write(f'{key}={value}\n')
+            
+            print(f"[程序路径] 保存成功: {self.target_path}")
+        except Exception as e:
+            print(f"[程序路径] 保存失败: {str(e)}")
+    
+    def load_program_path(self):
+        """从设置文件加载程序路径"""
+        try:
+            settings_file = self.get_settings_file_path()
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if line.startswith('program_path='):
+                            path = line.split('=', 1)[1]
+                            if os.path.exists(path):
+                                print(f"[程序路径] 从设置文件加载: {path}")
+                                return path
+                            else:
+                                print(f"[程序路径] 保存的程序不存在: {path}")
+        except Exception as e:
+            print(f"[程序路径] 加载失败: {str(e)}")
+        return None
     
     def load_auto_load_setting(self):
         """加载自动加载设置"""
