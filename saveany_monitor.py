@@ -1956,19 +1956,21 @@ url = "{url}"\n'''
             storage_type = self.storage_type_var.get()
             enable = 'true' if self.storage_enable_var.get() else 'false'
             base_path = self.storage_path_entry.get().strip()
+            concurrent_tasks = self.concurrent_tasks_entry.get().strip() or "3"
+            cache_path = self.cache_path_entry.get().strip()
             
             import re
             # 检查是否已存在 [[storages]] 部分
             if re.search(r'\[\[storages\]\]', content):
                 # 更新第一个 storages 配置
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\'][^"\']*["\']',
+                    r'(\[\[storages\]\][\s\S]*?name\s*=\s*)["\'][^"\']["\']',
                     f'\\1"{name}"',
                     content,
                     count=1
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\'][^"\']*["\']',
+                    r'(\[\[storages\]\][\s\S]*?type\s*=\s*)["\'][^"\']["\']',
                     f'\\1"{storage_type}"',
                     content,
                     count=1
@@ -1981,18 +1983,50 @@ url = "{url}"\n'''
                     flags=re.IGNORECASE
                 )
                 content = re.sub(
-                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\'][^"\']*["\']',
+                    r'(\[\[storages\]\][\s\S]*?base_path\s*=\s*)["\'][^"\']["\']',
                     f'\\1"{base_path}"',
                     content,
                     count=1
                 )
+                # 添加或更新 concurrent_tasks
+                if re.search(r'concurrent_tasks\s*=', content):
+                    content = re.sub(
+                        r'(concurrent_tasks\s*=\s*)\d+',
+                        f'\\1{concurrent_tasks}',
+                        content,
+                        count=1
+                    )
+                else:
+                    content = re.sub(
+                        r'(base_path\s*=\s*["\'][^"\']["\'])',
+                        f'\\1\nconcurrent_tasks = {concurrent_tasks}',
+                        content,
+                        count=1
+                    )
+                # 添加或更新 cache_path
+                if re.search(r'cache_path\s*=', content):
+                    content = re.sub(
+                        r'(cache_path\s*=\s*)["\'][^"\']["\']',
+                        f'\\1"{cache_path}"',
+                        content,
+                        count=1
+                    )
+                else:
+                    content = re.sub(
+                        r'(concurrent_tasks\s*=\s*\d+)',
+                        f'\\1\ncache_path = "{cache_path}"',
+                        content,
+                        count=1
+                    )
             else:
                 # 添加新配置
                 storage_config = f'''\n[[storages]]
 name = "{name}"
 type = "{storage_type}"
 enable = {enable}
-base_path = "{base_path}"\n'''
+base_path = "{base_path}"
+concurrent_tasks = {concurrent_tasks}
+cache_path = "{cache_path}"\n'''
                 content += storage_config
             
             # 备份并保存
@@ -2004,7 +2038,7 @@ base_path = "{base_path}"\n'''
                 f.write(content)
             
             self.settings_status.config(text="存储设置已保存到配置文件", foreground="green")
-            self.log("已保存存储设置")
+            self.log("已保存存储设置（包括同时任务数和缓存路径）")
             messagebox.showinfo("成功", "存储设置已保存！\n如果 SaveAny-Bot 正在运行，可能需要重启才能生效。")
         except Exception as e:
             messagebox.showerror("错误", f"保存失败: {str(e)}")
