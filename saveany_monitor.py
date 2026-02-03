@@ -979,10 +979,15 @@ base_path = "Z:/sp/uuu"""
         startup_frame = ttk.LabelFrame(parent, text="启动设置", padding="10")
         startup_frame.pack(fill=tk.X, pady=(0, 10))
         
-        self.auto_load_config_var = tk.BooleanVar(value=self.load_auto_load_setting())
+        print(f"\n[复选框] ===== 开始初始化复选框 =====")
+        loaded_value = self.load_auto_load_setting()
+        print(f"[复选框] load_auto_load_setting() 返回值: {loaded_value}")
+        self.auto_load_config_var = tk.BooleanVar(value=loaded_value)
+        print(f"[复选框] BooleanVar 初始值: {self.auto_load_config_var.get()}")
         ttk.Checkbutton(startup_frame, text="启动时自动从配置文件加载设置", 
                        variable=self.auto_load_config_var,
                        command=self.save_auto_load_setting).pack(side=tk.LEFT)
+        print(f"[复选框] ===== 复选框初始化完成 =====")
         
         # 状态提示
         self.settings_status = ttk.Label(parent, text="提示: 修改设置后请点击「保存到配置」按钮", foreground="blue")
