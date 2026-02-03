@@ -94,7 +94,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             pass
         except socket.timeout:
             pass
-        except Exception:
+        except Exception as e:
+            # 记录具体错误但不中断程序
             pass
     
     def do_GET(self):
@@ -111,7 +112,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.send_logs()
             else:
                 self.send_error(404, "Not Found")
-        except Exception:
+        except Exception as e:
+            # 记录具体错误但不中断程序
             pass
     
     def do_POST(self):
@@ -124,7 +126,8 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 self.handle_control()
             else:
                 self.send_error(404, "Not Found")
-        except Exception:
+        except Exception as e:
+            # 记录具体错误但不中断程序
             pass
     
     def send_html_page(self):
@@ -586,9 +589,18 @@ class MonitorApp(tk.Tk):
         settings_frame = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(settings_frame, text='配置编辑')
 
+        # 配置文件路径选择
+        config_frame = ttk.LabelFrame(settings_frame, text="配置文件", padding="10")
+        config_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(config_frame, text="配置文件路径:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        self.config_path_var = tk.StringVar()
+        ttk.Entry(config_frame, textvariable=self.config_path_var, width=60).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=2)
+        ttk.Button(config_frame, text="浏览", command=self.browse_config_path).grid(row=0, column=2, padx=5, pady=2)
+
         # 创建一个子Notebook用于分类设置
         settings_notebook = ttk.Notebook(settings_frame)
-        settings_notebook.pack(fill=tk.BOTH, expand=True)
+        settings_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
 
         # Telegram 设置
         telegram_tab = ttk.Frame(settings_notebook, padding="10")
@@ -716,7 +728,7 @@ class MonitorApp(tk.Tk):
         """选择 SaveAny-Bot 主程序路径"""
         path = filedialog.askopenfilename(
             title="选择 SaveAny-Bot 主程序",
-            filetypes=(("可执行文件", "*.exe"), ("所有文件", "*.*"))
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
         )
         if path:
             self.bot_path = path
@@ -730,10 +742,24 @@ class MonitorApp(tk.Tk):
             if os.path.exists(potential_config_path):
                 global config_path
                 config_path = potential_config_path
+                self.config_path_var.set(config_path)
                 self.status_bar.config(text=f"已加载配置文件: {config_path}")
                 self.load_config_to_ui()
             else:
                 messagebox.showwarning("警告", "在程序同目录下未找到 config.toml 文件。")
+                
+    def browse_config_path(self):
+        """浏览选择配置文件路径"""
+        path = filedialog.askopenfilename(
+            title="选择配置文件",
+            filetypes=[("配置文件", "*.toml"), ("所有文件", "*.*")]
+        )
+        if path:
+            global config_path
+            config_path = path
+            self.config_path_var.set(config_path)
+            self.status_bar.config(text=f"已加载配置文件: {config_path}")
+            self.load_config_to_ui()
 
     def load_config_to_ui(self):
         """加载配置到设置界面"""
@@ -742,59 +768,114 @@ class MonitorApp(tk.Tk):
             return
 
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
+            # 尝试导入 TOML 解析库
+            try:
+                import tomllib
+                with open(config_path, 'rb') as f:
+                    config = tomllib.load(f)
+            except ImportError:
+                try:
+                    import toml
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config = toml.load(f)
+                except ImportError:
+                    # 如果没有 TOML 库，使用正则表达式作为后备
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    import re
 
+                    # 加载 Telegram 设置
+                    token_match = re.search(r'token\s*=\s*["\']([^"\']*)["\']', content)
+                    if token_match:
+                        self.token_entry.delete(0, tk.END)
+                        self.token_entry.insert(0, token_match.group(1))
+
+                    admins_match = re.search(r'admin_users\s*=\s*\[([^\]]*)\]', content)
+                    if admins_match:
+                        admins = admins_match.group(1).replace('"', '').replace("'", '').strip()
+                        self.admins_entry.delete(0, tk.END)
+                        self.admins_entry.insert(0, admins)
+
+                    allowed_users_match = re.search(r'allowed_users\s*=\s*\[([^\]]*)\]', content)
+                    if allowed_users_match:
+                        allowed = allowed_users_match.group(1).replace('"', '').replace("'", '').strip()
+                        self.allowed_users_entry.delete(0, tk.END)
+                        self.allowed_users_entry.insert(0, allowed)
+
+                    proxy_enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
+                    if proxy_enable_match:
+                        self.proxy_enable_var.set(proxy_enable_match.group(1).lower() == 'true')
+
+                    proxy_url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']*)["\']', content)
+                    if proxy_url_match:
+                        self.proxy_url_entry.delete(0, tk.END)
+                        self.proxy_url_entry.insert(0, proxy_url_match.group(1))
+
+                    # 加载存储设置 (第一个)
+                    storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\n\[\[storages\]\]|\Z)', content)
+                    if storage_match:
+                        storage_block = storage_match.group(1)
+                        name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']', storage_block)
+                        if name_match: self.storage_name_entry.insert(0, name_match.group(1))
+                        
+                        type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']', storage_block)
+                        if type_match: self.storage_type_var.set(type_match.group(1))
+
+                        enable_match = re.search(r'enable\s*=\s*(true|false)', storage_block, re.IGNORECASE)
+                        if enable_match: self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
+
+                        path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                        if path_match: self.storage_path_entry.insert(0, path_match.group(1))
+
+                        tasks_match = re.search(r'concurrent_tasks\s*=\s*(\d+)', storage_block)
+                        if tasks_match: self.concurrent_tasks_entry.insert(0, tasks_match.group(1))
+
+                        cache_match = re.search(r'cache_path\s*=\s*["\']([^"\']*)["\']', storage_block)
+                        if cache_match: self.cache_path_entry.insert(0, cache_match.group(1))
+                    return
+
+            # 使用 TOML 库加载配置
             # 加载 Telegram 设置
-            token_match = re.search(r'token\s*=\s*["\']([^"\']*)["\']', content)
-            if token_match:
-                self.token_entry.delete(0, tk.END)
-                self.token_entry.insert(0, token_match.group(1))
-
-            admins_match = re.search(r'admin_users\s*=\s*\[([^\]]*)\]', content)
-            if admins_match:
-                admins = admins_match.group(1).replace('"', '').replace("'", '').strip()
-                self.admins_entry.delete(0, tk.END)
-                self.admins_entry.insert(0, admins)
-
-            allowed_users_match = re.search(r'allowed_users\s*=\s*\[([^\]]*)\]', content)
-            if allowed_users_match:
-                allowed = allowed_users_match.group(1).replace('"', '').replace("'", '').strip()
-                self.allowed_users_entry.delete(0, tk.END)
-                self.allowed_users_entry.insert(0, allowed)
-
-            proxy_enable_match = re.search(r'\[telegram\.proxy\][\s\S]*?enable\s*=\s*(true|false)', content, re.IGNORECASE)
-            if proxy_enable_match:
-                self.proxy_enable_var.set(proxy_enable_match.group(1).lower() == 'true')
-
-            proxy_url_match = re.search(r'\[telegram\.proxy\][\s\S]*?url\s*=\s*["\']([^"\']*)["\']', content)
-            if proxy_url_match:
-                self.proxy_url_entry.delete(0, tk.END)
-                self.proxy_url_entry.insert(0, proxy_url_match.group(1))
+            if 'telegram' in config:
+                telegram_config = config['telegram']
+                if 'token' in telegram_config:
+                    self.token_entry.delete(0, tk.END)
+                    self.token_entry.insert(0, telegram_config['token'])
+                if 'admin_users' in telegram_config:
+                    admins = ', '.join(map(str, telegram_config['admin_users']))
+                    self.admins_entry.delete(0, tk.END)
+                    self.admins_entry.insert(0, admins)
+                if 'allowed_users' in telegram_config:
+                    allowed = ', '.join(map(str, telegram_config['allowed_users']))
+                    self.allowed_users_entry.delete(0, tk.END)
+                    self.allowed_users_entry.insert(0, allowed)
+                if 'proxy' in telegram_config:
+                    proxy_config = telegram_config['proxy']
+                    if 'enable' in proxy_config:
+                        self.proxy_enable_var.set(proxy_config['enable'])
+                    if 'url' in proxy_config:
+                        self.proxy_url_entry.delete(0, tk.END)
+                        self.proxy_url_entry.insert(0, proxy_config['url'])
 
             # 加载存储设置 (第一个)
-            storage_match = re.search(r'\[\[storages\]\]([\s\S]*?)(?=\n\[\[storages\]\]|\Z)', content)
-            if storage_match:
-                storage_block = storage_match.group(1)
-                name_match = re.search(r'name\s*=\s*["\']([^"\']*)["\']', storage_block)
-                if name_match: self.storage_name_entry.insert(0, name_match.group(1))
-                
-                type_match = re.search(r'type\s*=\s*["\']([^"\']*)["\']', storage_block)
-                if type_match: self.storage_type_var.set(type_match.group(1))
-
-                enable_match = re.search(r'enable\s*=\s*(true|false)', storage_block, re.IGNORECASE)
-                if enable_match: self.storage_enable_var.set(enable_match.group(1).lower() == 'true')
-
-                path_match = re.search(r'base_path\s*=\s*["\']([^"\']*)["\']', storage_block)
-                if path_match: self.storage_path_entry.insert(0, path_match.group(1))
-
-                tasks_match = re.search(r'concurrent_tasks\s*=\s*(\d+)', storage_block)
-                if tasks_match: self.concurrent_tasks_entry.insert(0, tasks_match.group(1))
-
-                cache_match = re.search(r'cache_path\s*=\s*["\']([^"\']*)["\']', storage_block)
-                if cache_match: self.cache_path_entry.insert(0, cache_match.group(1))
+            if 'storages' in config and config['storages']:
+                storage_config = config['storages'][0]
+                if 'name' in storage_config:
+                    self.storage_name_entry.delete(0, tk.END)
+                    self.storage_name_entry.insert(0, storage_config['name'])
+                if 'type' in storage_config:
+                    self.storage_type_var.set(storage_config['type'])
+                if 'enable' in storage_config:
+                    self.storage_enable_var.set(storage_config['enable'])
+                if 'base_path' in storage_config:
+                    self.storage_path_entry.delete(0, tk.END)
+                    self.storage_path_entry.insert(0, storage_config['base_path'])
+                if 'concurrent_tasks' in storage_config:
+                    self.concurrent_tasks_entry.delete(0, tk.END)
+                    self.concurrent_tasks_entry.insert(0, str(storage_config['concurrent_tasks']))
+                if 'cache_path' in storage_config:
+                    self.cache_path_entry.delete(0, tk.END)
+                    self.cache_path_entry.insert(0, storage_config['cache_path'])
 
         except Exception as e:
             messagebox.showerror("错误", f"加载配置文件失败: {e}")
@@ -965,22 +1046,31 @@ cache_path = "{cache_path}"
             return
 
         try:
-            # 使用 start /b 来在后台启动，避免弹出命令行窗口
-            self.process = subprocess.Popen(f'start /b "" "{self.bot_path}"', shell=True, cwd=os.path.dirname(self.bot_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+            # 直接启动进程，使用 CREATE_NO_WINDOW 标志避免弹出命令行窗口
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            self.process = subprocess.Popen(
+                [self.bot_path],
+                cwd=os.path.dirname(self.bot_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                startupinfo=startupinfo
+            )
             time.sleep(2) # 等待进程启动
             
-            # 查找进程
-            bot_process_name = os.path.basename(self.bot_path)
-            found_p = None
-            for p in psutil.process_iter(['name', 'pid']):
-                if p.info['name'] == bot_process_name:
-                    found_p = p
-                    break
-            
-            if not found_p:
-                raise RuntimeError("启动后未能找到进程")
+            # 验证进程是否正在运行
+            if not self.process.poll() is None:
+                raise RuntimeError("进程启动失败")
 
-            self.process = psutil.Process(found_p.pid)
+            # 保存 stdout 和 stderr 流
+            stdout_stream = self.process.stdout
+            stderr_stream = self.process.stderr
+            
+            # 获取进程信息
+            self.process = psutil.Process(self.process.pid)
             self.start_time = datetime.fromtimestamp(self.process.create_time())
             self.monitoring = True
             self.update_button_states()
@@ -989,7 +1079,7 @@ cache_path = "{cache_path}"
             
             # 启动日志捕获
             self.stop_log_capture.clear()
-            self.log_capture_thread = threading.Thread(target=self.capture_logs, daemon=True)
+            self.log_capture_thread = threading.Thread(target=self.capture_logs, args=(stdout_stream, stderr_stream), daemon=True)
             self.log_capture_thread.start()
             self.process_log_queue()
 
@@ -1106,28 +1196,21 @@ cache_path = "{cache_path}"
     def update_network_info(self):
         """更新网络流量信息"""
         try:
-            # 进程网络IO
-            proc_io = self.process.io_counters()
-            total_read = proc_io.read_bytes
-            total_write = proc_io.write_bytes
-
-            if not hasattr(self, 'last_proc_io'):
-                self.last_proc_io = (total_read, total_write, time.time())
+            # 进程网络IO - Windows 不支持获取单个进程的网络IO
+            if not hasattr(self, 'last_net_time'):
+                self.last_net_time = time.time()
             
-            last_read, last_write, last_time = self.last_proc_io
-            time_delta = time.time() - last_time
-
+            time_delta = time.time() - self.last_net_time
             if time_delta > 0:
-                read_speed = (total_read - last_read) / time_delta
-                write_speed = (total_write - last_write) / time_delta
-                self.net_io_label.config(text=f"{read_speed/1024:.2f} KB/s / {write_speed/1024:.2f} KB/s")
-                monitor_data['download_speed'] = f"{read_speed/1024:.2f} KB/s"
-                monitor_data['upload_speed'] = f"{write_speed/1024:.2f} KB/s"
-
-            self.net_total_label.config(text=f"{total_read/1024/1024:.2f} MB / {total_write/1024/1024:.2f} MB")
-            monitor_data['total_download'] = f"{total_read/1024/1024:.2f} MB"
-            monitor_data['total_upload'] = f"{total_write/1024/1024:.2f} MB"
-            self.last_proc_io = (total_read, total_write, time.time())
+                # 使用占位符表示进程级网络IO在Windows上不可用
+                self.net_io_label.config(text="N/A (Windows)")
+                monitor_data['download_speed'] = "N/A (Windows)"
+                monitor_data['upload_speed'] = "N/A (Windows)"
+            
+            self.net_total_label.config(text="N/A (Windows)")
+            monitor_data['total_download'] = "N/A (Windows)"
+            monitor_data['total_upload'] = "N/A (Windows)"
+            self.last_net_time = time.time()
 
             # 系统网络IO
             sys_io = psutil.net_io_counters()
@@ -1149,12 +1232,17 @@ cache_path = "{cache_path}"
 
             self.last_sys_io = (total_recv, total_sent, time.time())
 
-        except Exception:
-            pass # 忽略网络信息更新错误
+        except Exception as e:
+            # 记录错误但继续运行
+            self.status_bar.config(text=f"更新网络信息时出错: {e}")
+            # 重置为默认值
+            self.net_io_label.config(text="0 KB/s / 0 KB/s")
+            self.net_total_label.config(text="0 MB / 0 MB")
+            self.sys_net_io_label.config(text="0 KB/s / 0 KB/s")
 
-    def capture_logs(self):
+    def capture_logs(self, stdout_stream, stderr_stream):
         """捕获子进程的 stdout 和 stderr"""
-        for stream in [self.process.stdout, self.process.stderr]:
+        for stream in [stdout_stream, stderr_stream]:
             if stream:
                 threading.Thread(target=self.read_stream, args=(stream,), daemon=True).start()
 
@@ -1166,23 +1254,31 @@ cache_path = "{cache_path}"
                 if not line:
                     break
                 self.log_queue.put(line.strip())
-            except:
+            except Exception:
                 break
 
     def process_log_queue(self):
         """处理日志队列并更新UI"""
         try:
+            # 处理队列中的所有日志
             while True:
-                line = self.log_queue.get_nowait()
-                self.log_text.config(state=tk.NORMAL)
-                self.log_text.insert(tk.END, line + '\n')
-                self.log_text.see(tk.END)
-                self.log_text.config(state=tk.DISABLED)
-                recent_logs.append(line)
-        except queue.Empty:
-            pass
+                try:
+                    line = self.log_queue.get_nowait()
+                    self.log_text.config(state=tk.NORMAL)
+                    self.log_text.insert(tk.END, line + '\n')
+                    self.log_text.see(tk.END)
+                    self.log_text.config(state=tk.DISABLED)
+                    recent_logs.append(line)
+                    # 标记任务为完成
+                    self.log_queue.task_done()
+                except queue.Empty:
+                    break
+        except Exception as e:
+            # 记录错误但继续运行
+            self.status_bar.config(text=f"处理日志队列时出错: {e}")
         finally:
             if self.monitoring:
+                # 即使队列为空，也要继续检查
                 self.after(100, self.process_log_queue)
 
     def update_button_states(self):
@@ -1239,13 +1335,24 @@ cache_path = "{cache_path}"
     def stop_web_server(self):
         """停止 Web 服务器"""
         if self.httpd:
-            self.httpd.stop()
-            self.httpd = None
-            self.web_server_thread.join(timeout=2)
-            self.web_status_label.config(text="Web 服务未运行", foreground="red")
-            self.web_link_label.config(text="")
-            self.web_start_button.config(state=tk.NORMAL)
-            self.web_stop_button.config(state=tk.DISABLED)
+            try:
+                self.httpd.stop()
+                # 等待线程结束，但设置超时
+                if self.web_server_thread and self.web_server_thread.is_alive():
+                    self.web_server_thread.join(timeout=3)
+                    # 如果线程仍在运行，记录警告
+                    if self.web_server_thread.is_alive():
+                        self.status_bar.config(text="Web 服务器线程可能未完全停止")
+                self.httpd = None
+                self.web_status_label.config(text="Web 服务未运行", foreground="red")
+                self.web_link_label.config(text="")
+                self.web_start_button.config(state=tk.NORMAL)
+                self.web_stop_button.config(state=tk.DISABLED)
+            except Exception as e:
+                self.status_bar.config(text=f"停止 Web 服务器时出错: {e}")
+                self.web_status_label.config(text="Web 服务停止出错", foreground="orange")
+                self.web_start_button.config(state=tk.NORMAL)
+                self.web_stop_button.config(state=tk.DISABLED)
 
     def get_ip_address(self):
         """获取本机IP地址"""
