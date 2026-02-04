@@ -517,6 +517,7 @@ class SaveAnyMonitor:
         
         self.create_widgets()
         self.auto_detect_exe_path()
+        self.load_config()
         self.start_monitoring()
         self.process_log_queue()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -772,37 +773,15 @@ class SaveAnyMonitor:
         self.local_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(local_path_row, text="浏览", command=lambda: self.browse_directory(self.local_path_entry)).pack(side=tk.LEFT)
         
-        # 临时路径
+        # 缓存位置
         temp_path_row = ttk.Frame(storage_frame)
         temp_path_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(temp_path_row, text="临时路径:", width=12).pack(side=tk.LEFT)
+        ttk.Label(temp_path_row, text="缓存位置:", width=12).pack(side=tk.LEFT)
         self.temp_path_entry = ttk.Entry(temp_path_row)
         self.temp_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(temp_path_row, text="浏览", command=lambda: self.browse_directory(self.temp_path_entry)).pack(side=tk.LEFT)
         
-        # Rclone 设置
-        rclone_frame = ttk.LabelFrame(parent, text="Rclone 远程设置 [storage.rclone]", padding="10")
-        rclone_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Rclone 启用
-        rclone_enable_row = ttk.Frame(rclone_frame)
-        rclone_enable_row.pack(fill=tk.X, pady=(0, 5))
-        self.rclone_enable_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(rclone_enable_row, text="启用 Rclone", variable=self.rclone_enable_var).pack(side=tk.LEFT)
-        
-        # Rclone 远程名称
-        rclone_remote_row = ttk.Frame(rclone_frame)
-        rclone_remote_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(rclone_remote_row, text="远程名称:", width=12).pack(side=tk.LEFT)
-        self.rclone_remote_entry = ttk.Entry(rclone_remote_row)
-        self.rclone_remote_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        # Rclone 远程路径
-        rclone_path_row = ttk.Frame(rclone_frame)
-        rclone_path_row.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(rclone_path_row, text="远程路径:", width=12).pack(side=tk.LEFT)
-        self.rclone_path_entry = ttk.Entry(rclone_path_row)
-        self.rclone_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         
         # 操作按钮
         action_frame = ttk.Frame(parent)
@@ -1346,6 +1325,26 @@ class SaveAnyMonitor:
                 self.config_editor.delete('1.0', tk.END)
                 self.config_editor.insert(tk.END, content)
                 self.config_status.config(text=f"配置已加载: {datetime.now().strftime('%H:%M:%S')}", foreground="green")
+                
+                # 解析配置文件，提取base_path（只匹配name = "本地磁盘"和type = "local"的存储配置）
+                import re
+                # 查找name = "本地磁盘"且type = "local"的[[storages]]部分中的base_path
+                pattern = r'\[\[storages\]\](.*?)name\s*=\s*["\']本地磁盘["\'](.*?)type\s*=\s*["\']local["\'](.*?)base_path\s*=\s*["\'](.*?)["\']'
+                base_path_match = re.search(pattern, content, re.DOTALL)
+                if base_path_match:
+                    base_path = base_path_match.group(4)
+                    if hasattr(self, 'local_path_entry'):
+                        self.local_path_entry.delete(0, tk.END)
+                        self.local_path_entry.insert(0, base_path)
+                
+                # 解析配置文件，提取[temp]部分的base_path
+                temp_pattern = r'\[temp\](.*?)base_path\s*=\s*["\'](.*?)["\']'
+                temp_match = re.search(temp_pattern, content, re.DOTALL)
+                if temp_match:
+                    temp_path = temp_match.group(2)
+                    if hasattr(self, 'temp_path_entry'):
+                        self.temp_path_entry.delete(0, tk.END)
+                        self.temp_path_entry.insert(0, temp_path)
         except Exception as e:
             messagebox.showerror("错误", f"加载配置失败: {str(e)}")
     
@@ -1357,6 +1356,45 @@ class SaveAnyMonitor:
         
         try:
             content = self.config_editor.get('1.0', tk.END).strip()
+            
+            # 从local_path_entry更新base_path（只更新name = "本地磁盘"和type = "local"的存储配置）
+            if hasattr(self, 'local_path_entry'):
+                local_path = self.local_path_entry.get().strip()
+                if local_path:
+                    import re
+                    # 更新name = "本地磁盘"且type = "local"的[[storages]]部分中的base_path
+                    pattern = r'(\[\[storages\]\](.*?)name\s*=\s*["\']本地磁盘["\'](.*?)type\s*=\s*["\']local["\'](.*?)base_path\s*=\s*)["\'].*?["\']'
+                    updated_content = re.sub(
+                        pattern,
+                        r'\1"' + local_path + '"',
+                        content,
+                        flags=re.DOTALL
+                    )
+                    if updated_content != content:
+                        content = updated_content
+                        # 更新编辑器内容
+                        self.config_editor.delete('1.0', tk.END)
+                        self.config_editor.insert(tk.END, content)
+            
+            # 从temp_path_entry更新[temp]部分的base_path
+            if hasattr(self, 'temp_path_entry'):
+                temp_path = self.temp_path_entry.get().strip()
+                if temp_path:
+                    import re
+                    # 更新[temp]部分中的base_path
+                    temp_pattern = r'(\[temp\](.*?)base_path\s*=\s*)["\'].*?["\']'
+                    updated_content = re.sub(
+                        temp_pattern,
+                        r'\1"' + temp_path + '"',
+                        content,
+                        flags=re.DOTALL
+                    )
+                    if updated_content != content:
+                        content = updated_content
+                        # 更新编辑器内容
+                        self.config_editor.delete('1.0', tk.END)
+                        self.config_editor.insert(tk.END, content)
+            
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             self.config_status.config(text=f"配置已保存: {datetime.now().strftime('%H:%M:%S')}", foreground="green")
@@ -1525,10 +1563,14 @@ class SaveAnyMonitor:
         self.settings_status.config(text="设置已从配置文本加载", foreground="green")
 
     def save_settings_to_config(self):
-        # 简单逻辑：在文本中替换
-        content = self.config_editor.get('1.0', tk.END)
-        # 这里仅作演示，实际需要更复杂的 TOML 解析或替换逻辑
-        messagebox.showinfo("提示", "设置已同步到配置编辑器，请点击「保存配置」写入文件。")
+        # 保存设置到配置文件
+        try:
+            # 先调用save_config方法保存配置文件
+            self.save_config()
+            self.settings_status.config(text=f"设置已保存到配置文件: {datetime.now().strftime('%H:%M:%S')}", foreground="green")
+            messagebox.showinfo("提示", "设置已保存到配置文件")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存设置失败: {str(e)}")
 
     def on_closing(self):
         self.running = False
